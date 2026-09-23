@@ -79,7 +79,10 @@ public class ExportLoaders extends GhidraScript {
 
     private void write(File out, String needle, Set<Function> users, Set<String> notes,
                        DecompInterface dec) throws Exception {
-        String name = needle.replaceAll("[^A-Za-z0-9_]", "_") + ".c";
+        String name = needle.replaceAll("[^A-Za-z0-9_]", "_");
+        if (name.length() > 60)     // long function lists: keep the path legal
+            name = name.substring(0, 40) + "_" + Integer.toHexString(needle.hashCode());
+        name += ".c";
         try (PrintWriter w = new PrintWriter(new File(out, name), "UTF-8")) {
             for (String n : notes) w.println("// " + n);
             for (Function f : users) {

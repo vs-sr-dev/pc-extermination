@@ -145,35 +145,37 @@ def has_normals(o):
     return bool(lens) and sum(abs(x - 1) < 0.05 for x in lens) * 2 > len(lens)
 
 
-def export_gltf(path, meshes, mem, flip_y=True, split=False):
-    """Write a glTF 2.0 file (+ .bin + PNGs) with one node per mesh slot.
+class Gltf:
+    """A glTF 2.0 document under construction: buffers, textures from GS
+    memory, meshes; save() writes the .gltf, its .bin and the PNGs."""
 
-    Primitives are grouped by TEX0; textures are rendered from GS memory in
-    GS row order, so the vertex s,t map straight onto glTF UVs. The game's y
-    axis points down: flip_y turns it up (and mirrors the winding back)."""
-    out_dir = os.path.dirname(os.path.abspath(path))
-    stem = os.path.splitext(os.path.basename(path))[0]
-    os.makedirs(os.path.join(out_dir, stem + "_tex"), exist_ok=True)
-    blob = bytearray()
-    g = {"asset": {"version": "2.0", "generator": "pc-extermination ext_mesh.py"},
-         "scene": 0, "scenes": [{"nodes": []}], "nodes": [], "meshes": [],
-         "materials": [], "textures": [], "images": [], "samplers": [
-             {"magFilter": 9729, "minFilter": 9729, "wrapS": 10497, "wrapT": 10497}],
-         "accessors": [], "bufferViews": [], "buffers": []}
-    materials = {}
+    def __init__(self, path, mem, flip_y=True):
+        self.path, self.mem = path, mem
+        self.out_dir = os.path.dirname(os.path.abspath(path))
+        self.stem = os.path.splitext(os.path.basename(path))[0]
+        os.makedirs(os.path.join(self.out_dir, self.stem + "_tex"), exist_ok=True)
+        self.blob = bytearray()
+        self.g = {"asset": {"version": "2.0", "generator": "pc-extermination"},
+                  "scene": 0, "scenes": [{"nodes": []}], "nodes": [], "meshes": [],
+                  "materials": [], "textures": [], "images": [], "samplers": [
+                      {"magFilter": 9729, "minFilter": 9729, "wrapS": 10497, "wrapT": 10497}],
+                  "accessors": [], "bufferViews": [], "buffers": []}
+        self.materials = {}
+        self.sy = -1.0 if flip_y else 1.0
 
-    def material(tex0):
+    def material(self, tex0):
+        g = self.g
         key = tex0 & ((1 << 34) - 1) | tex0 & (0x7FFFFFF << 37) if tex0 else 0
-        if key in materials:
-            return materials[key]
+        if key in self.materials:
+            return self.materials[key]
         m = {"name": "untextured", "doubleSided": False,
              "pbrMetallicRoughness": {"metallicFactor": 0.0, "roughnessFactor": 1.0}}
         if key:
             t = gsmem.Tex0(tex0)
             name = ext_tex.name(t)
-            rgba = mem.texture(t, tcc=1)
-            rel = "%s_tex/%s.png" % (stem, name)
-            gs.write_png(os.path.join(out_dir, rel), t.w, t.h, rgba)
+            rgba = self.mem.texture(t, tcc=1)
+            rel = "%s_tex/%s.png" % (self.stem, name)
+            gs.write_png(os.path.join(self.out_dir, rel), t.w, t.h, rgba)
             g["images"].append({"uri": rel})
             g["textures"].append({"sampler": 0, "source": len(g["images"]) - 1})
             m["name"] = name
@@ -182,10 +184,14 @@ def export_gltf(path, meshes, mem, flip_y=True, split=False):
                 m["alphaMode"] = "MASK"
                 m["alphaCutoff"] = 0.5
         g["materials"].append(m)
-        materials[key] = len(g["materials"]) - 1
-        return materials[key]
+        self.materials[key] = len(g["materials"]) - 1
+        return self.materials[key]
 
-    def add(data, fmt, count, comps, target=None, minmax=False):
+    def add(self, values, comps, target=None, minmax=False, ctype=5126, kind=None):
+        """Append a float (or ctype) accessor of `comps` components."""
+        g, blob = self.g, self.blob
+        fmt = {5126: "f", 5121: "B", 5123: "H"}[ctype]
+        data = struct.pack("<%d%s" % (len(values), fmt), *values)
         while len(blob) % 4:
             blob.append(0)
         view = {"buffer": 0, "byteOffset": len(blob), "byteLength": len(data)}
@@ -193,29 +199,36 @@ def export_gltf(path, meshes, mem, flip_y=True, split=False):
             view["target"] = target
         blob.extend(data)
         g["bufferViews"].append(view)
-        acc = {"bufferView": len(g["bufferViews"]) - 1, "componentType": 5126,
-               "count": count, "type": {2: "VEC2", 3: "VEC3", 4: "VEC4"}[comps]}
+        acc = {"bufferView": len(g["bufferViews"]) - 1, "componentType": ctype,
+               "count": len(values) // comps,
+               "type": kind or {1: "SCALAR", 2: "VEC2", 3: "VEC3", 4: "VEC4"}[comps]}
         if minmax:
-            vals = struct.unpack("<%df" % (count * comps), data)
-            acc["min"] = [min(vals[i::comps]) for i in range(comps)]
-            acc["max"] = [max(vals[i::comps]) for i in range(comps)]
+            acc["min"] = [min(values[i::comps]) for i in range(comps)]
+            acc["max"] = [max(values[i::comps]) for i in range(comps)]
         g["accessors"].append(acc)
         return len(g["accessors"]) - 1
 
-    sy = -1.0 if flip_y else 1.0
+    def mesh(self, name, objs, pose=None):
+        """Add a glTF mesh of the objects; None if it has no triangles.
 
-    def mesh_of(name, objs):
-        groups = {}               # (material, has normals) -> pos, nrm, uv, col
+        pose(bone, (x, y, z)) -> (x, y, z) moves bone-local positions (and
+        normals, with w = 0) into place and turns on JOINTS_0/WEIGHTS_0."""
+        sy = self.sy
+        groups = {}               # (material, has normals) -> pos, nrm, uv, col, joints
         for o in objs:
             normals = has_normals(o)
             V = o.vertices
             for tri in o.triangles():
-                if flip_y:
+                if sy < 0:
                     tri = (tri[1], tri[0], tri[2])
-                mat = material(V[tri[2]][0])
-                p, n, uv, col = groups.setdefault((mat, normals), ([], [], [], []))
+                mat = self.material(V[tri[2]][0])
+                p, n, uv, col, jt = groups.setdefault((mat, normals), ([], [], [], [], []))
                 for i in tri:
-                    tex0, stq, q2, pos, _ = V[i]
+                    tex0, stq, q2, pos, wbits = V[i]
+                    if pose:
+                        bone = bone_of(wbits)
+                        pos, q2 = pose(bone, pos, 1.0), pose(bone, q2, 0.0)
+                        jt.append(bone)
                     p += [pos[0], sy * pos[1], pos[2]]
                     q = stq[2] or 1.0
                     uv += [stq[0] / q, stq[1] / q]
@@ -224,45 +237,71 @@ def export_gltf(path, meshes, mem, flip_y=True, split=False):
                     else:
                         col += [min(q2[0], 1.0), min(q2[1], 1.0), min(q2[2], 1.0), 1.0]
         prims = []
-        for (mat, normals), (p, n, uv, col) in groups.items():
-            count = len(p) // 3
-            attrs = {"POSITION": add(struct.pack("<%df" % len(p), *p), 5126, count, 3, 34962, True),
-                     "TEXCOORD_0": add(struct.pack("<%df" % len(uv), *uv), 5126, count, 2, 34962)}
+        for (mat, normals), (p, n, uv, col, jt) in groups.items():
+            attrs = {"POSITION": self.add(p, 3, 34962, True),
+                     "TEXCOORD_0": self.add(uv, 2, 34962)}
             if normals:
-                attrs["NORMAL"] = add(struct.pack("<%df" % len(n), *n), 5126, count, 3, 34962)
+                attrs["NORMAL"] = self.add(n, 3, 34962)
             else:
-                attrs["COLOR_0"] = add(struct.pack("<%df" % len(col), *col), 5126, count, 4, 34962)
+                attrs["COLOR_0"] = self.add(col, 4, 34962)
+            if jt:
+                attrs["JOINTS_0"] = self.add([x for j in jt for x in (j, 0, 0, 0)], 4,
+                                             34962, ctype=5121)
+                attrs["WEIGHTS_0"] = self.add([x for _ in jt for x in (1.0, 0, 0, 0)], 4, 34962)
             prims.append({"attributes": attrs, "material": mat, "mode": 4})
         if not prims:
             return None
-        g["meshes"].append({"name": name, "primitives": prims})
-        return len(g["meshes"]) - 1
+        self.g["meshes"].append({"name": name, "primitives": prims})
+        return len(self.g["meshes"]) - 1
 
+    def node(self, node, root=True):
+        self.g["nodes"].append(node)
+        k = len(self.g["nodes"]) - 1
+        if root:
+            self.g["scenes"][0]["nodes"].append(k)
+        return k
+
+    def save(self):
+        g = self.g
+        bin_name = self.stem + ".bin"
+        with open(os.path.join(self.out_dir, bin_name), "wb") as fb:
+            fb.write(self.blob)
+        g["buffers"].append({"uri": bin_name, "byteLength": len(self.blob)})
+        for k in ("textures", "images"):
+            if not g[k]:
+                del g[k]
+        with open(self.path, "w") as fj:
+            json.dump(g, fj)
+
+
+def bone_of(wbits):
+    """The bone a vertex belongs to: w's low mantissa bits hold bone * 8."""
+    return (wbits & 0x1FFF) >> 3
+
+
+def export_gltf(path, meshes, mem, flip_y=True, split=False):
+    """Write a glTF 2.0 file (+ .bin + PNGs) with one node per mesh slot.
+
+    Primitives are grouped by TEX0; textures are rendered from GS memory in
+    GS row order, so the vertex s,t map straight onto glTF UVs. The game's y
+    axis points down: flip_y turns it up (and mirrors the winding back)."""
+    doc = Gltf(path, mem, flip_y)
     for label, objs in meshes.items():
         parent = {"name": label, "children": []}
-        g["nodes"].append(parent)
-        g["scenes"][0]["nodes"].append(len(g["nodes"]) - 1)
+        doc.node(parent)
         if split:
             for k, o in enumerate(objs):
-                m = mesh_of("%s_%03d" % (label, k), [o])
+                m = doc.mesh("%s_%03d" % (label, k), [o])
                 if m is not None:
-                    g["nodes"].append({"name": "%s_%03d" % (label, k), "mesh": m})
-                    parent["children"].append(len(g["nodes"]) - 1)
+                    parent["children"].append(doc.node(
+                        {"name": "%s_%03d" % (label, k), "mesh": m}, root=False))
         else:
-            m = mesh_of(label, objs)
+            m = doc.mesh(label, objs)
             if m is not None:
                 parent["mesh"] = m
         if not parent["children"]:
             del parent["children"]
-    bin_name = stem + ".bin"
-    with open(os.path.join(out_dir, bin_name), "wb") as fb:
-        fb.write(blob)
-    g["buffers"].append({"uri": bin_name, "byteLength": len(blob)})
-    for k in ("textures", "images"):
-        if not g[k]:
-            del g[k]
-    with open(path, "w") as fj:
-        json.dump(g, fj)
+    doc.save()
 
 
 def main():

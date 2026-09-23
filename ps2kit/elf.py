@@ -2,6 +2,7 @@
 
     python -m ps2kit.elf SCES_502.40 --info
     python -m ps2kit.elf SCES_502.40 --xref 0x270490
+    python -m ps2kit.elf SCES_502.40 --callers 0x1C6CE0
     python -m ps2kit.elf SCES_502.40 --read 0x25E8B0 64
 
 PS2 retail executables are stripped, so the most useful question is usually
@@ -110,6 +111,15 @@ class Elf:
                         hits.append((va, full, lva))
         return hits
 
+    def callers(self, targets):
+        """Every `jal` onto one of the targets: [(site_va, target)].
+
+        Ghidra misses some of these when a function is only reached through
+        code it did not disassemble; a plain scan does not."""
+        want = {(t >> 2) & 0x3FFFFFF: t for t in targets}
+        return [(va, want[w & 0x3FFFFFF]) for va, w in self.words()
+                if w >> 26 == 0x03 and w & 0x3FFFFFF in want]
+
     def find_bytes(self, needle):
         """Every virtual address at which `needle` occurs in the main segment."""
         s, out, i = self.main, [], self.data.find(needle)
@@ -144,6 +154,7 @@ def main():
     ap.add_argument("elf")
     ap.add_argument("--info", action="store_true")
     ap.add_argument("--xref", nargs="+", metavar="VA")
+    ap.add_argument("--callers", nargs="+", metavar="VA", help="jal sites onto these functions")
     ap.add_argument("--read", nargs=2, metavar=("VA", "N"))
     a = ap.parse_args()
     e = Elf(a.elf)
@@ -157,6 +168,9 @@ def main():
     if a.xref:
         for va, full, lva in e.xref(int(x, 0) for x in a.xref):
             print("%08X  -> %08X  (lui at %08X)" % (va, full, lva))
+    if a.callers:
+        for va, t in e.callers(int(x, 0) for x in a.callers):
+            print("%08X  jal %08X" % (va, t))
     if a.read:
         va, n = int(a.read[0], 0), int(a.read[1], 0)
         b = e.read(va, n)
