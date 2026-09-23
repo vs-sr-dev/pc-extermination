@@ -18,10 +18,8 @@ Resolved questions move to the bottom with the session that settled them.
 2. **Sound bank format** — the header before `SShd`, and how programs map to
    samples. Driven by `sndn2_driver`; the loader hands banks to the IOP
    through `0x001FBD00`.
-3. **Text commands** — every area's text runs `{3, 1, 0, -1}` then
-   `{3, 0, n, -1}` on the first line of a radio conversation. n (3–77) is not
-   a voice clip or a music track. What is it? Find who interprets the
-   command table.
+3. **Text style 3**: italic, or another effect? Byte +5 of the text state
+   at `0x00265854` — see what the glyph drawer does with it.
 4. **Sections 0–2, 28, 30, 50–57**: roles still guesses. 29 is a mesh
    resource drawn with area 00's pages: a cutscene, a demo, an attract
    sequence?
@@ -61,5 +59,6 @@ Resolved questions move to the bottom with the session that settled them.
   02-container-formats.md.
 * **Do models go through VU1?** (session 3): yes. Every mesh is a stored
   VIF1 packet of vertex batches run by `MSCAL`/`MSCNT`.
-* **Text tables** (session 2): header, per-line command records and the
-  command table decoded; only the meaning of n remains (question 3).
+* **Text tables** (sessions 2–3): header, per-line records, and the
+  commands: style runs `{type, value, position, extra}`; n is a character
+  position, the end of the styled run.

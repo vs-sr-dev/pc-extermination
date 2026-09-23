@@ -82,3 +82,11 @@ not mirrored left to right: the textures are stored bottom row first
 Every picture with lettering (title, inventory screens, warnings) differs
 between the five languages, except section 41, the Deep Space logo screen,
 which is byte-identical in the Italian and Spanish data.
+
+### 12. The German text loses its emphasis
+
+Subtitles emphasise single words with style runs: an "on" command at one
+character, an "off" command at another. In a few German lines of section 8
+both commands say "off" — "Er lautet YS-4921." and "Ein bestimmtes
+Medium?" — so the code number and the word stay plain, where the French
+"C'est *YS-4921*." shows it styled.

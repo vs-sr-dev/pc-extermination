@@ -163,14 +163,22 @@ resource (**verified** on all 17 areas):
 
 The per-line records point into the command table the same way the string
 table points into its pool (offset, index, length); most lines run no
-command. Every command in every area is `{3, 1, 0, -1}` followed by
-`{3, 0, n, -1}`, 134 pairs in all, and they sit on the first line of a radio
-conversation ("Dennis." / "Qui, Roger."). n runs from 3 to 77 and repeats
-within and across areas (n = 32 opens two different conversations in area
-00). **n is not a voice clip** (178 clips; durations do not match the lines)
-nor a music track (66). Candidates: a portrait/expression, a jingle or sound
-effect, a camera. To be settled in the code. The section 57 tables have a
-different header.
+command. A command is `{u32 type, u32 value, u32 character position, u32
+extra}`, applied by the text renderer (`0x001FE9E0`) when it reaches that
+position in the string: **style runs**.
+
+| Type | Effect |
+|---|---|
+| 2 | colour = palette[value] (palette at `0x002704F0`) |
+| 3 | sets byte +5 of the text state to value × 8 — on (1) / off (0); most likely the italic slant |
+| 4 | colour = palette[value], and byte +5 = extra × 8 |
+
+The disc only uses type 3. 134 pairs in Italian: `{3, 1, 0}` then
+`{3, 0, n}` with n the line's length (131 of 134) style **a whole radio
+line**; the others style **single words** ("Finché *cerchi* di
+dimenticare", "*acqua*", the code "*YS-4921*" in French). Session 2's
+voice-clip hypothesis was wrong: n = 32 on two lines is two lines of 32
+characters. The section 57 tables have a different header.
 
 The string table is found by its shape:
 

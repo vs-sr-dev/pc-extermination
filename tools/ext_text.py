@@ -11,9 +11,12 @@ section 57. A text resource holds, among other tables, a string table:
     count x { u32 offset, u32 offset, u32 length, u32 length + 1 }
     pool_size bytes of NUL-terminated strings, '\\n' for line breaks
 
-The string table is found by that shape rather than by a fixed offset: the
-tables before it (per-line records and short command records, such as
-{3, 0, n, -1}) are not decoded yet. Empty strings separate groups of lines.
+The string table is found by that shape rather than by a fixed offset. An
+area's resource starts with u32 cmd_offset, u32 lines, u32 cmd_size, u32 0x10,
+then one 16-byte record per line pointing into a table of style commands
+{type, value, character position, extra}: type 3 switches a style (italic,
+probably) on or off at that position; 2 and 4 set a palette colour. See
+docs/02-container-formats.md. Empty strings separate groups of lines.
 
 Text is Windows-1252 (the French use 0x9C for oe). Shift-JIS pairs with lead
 0x81 supply a few symbols (0x8163 ellipsis, 0x815E slash, 0x8183/0x8184 angle
