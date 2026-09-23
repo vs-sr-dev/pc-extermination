@@ -43,9 +43,9 @@ runtime answers those at the highest level that works:
   turns GIF primitives into modern draw calls (a "GS HLE"). Once the game's
   own draw functions are known, replace them directly with native calls, which
   also opens the door to higher resolutions and widescreen.
-* **VU1**: if models go through VU1 microcode, either interpret the few
-  microprograms the game uploads, or, better for a port, decode the model
-  format and render it natively, skipping VU1.
+* **VU1**: models do go through VU1 microcode (22 programs). Either
+  interpret them, or, better for a port, render the mesh format natively
+  (decoded in sessions 3–4) and skip VU1.
 * **Sound**: HLE the `sndn2_driver` RPC commands onto a native mixer, fed by
   `ps2kit.adpcm`.
 
@@ -64,9 +64,10 @@ draws a wrong model, we will know what it should have drawn.
 3. ~~Text dump for all five languages~~ — done in session 1; the tables
    before the strings decoded in session 2, except the meaning of one
    command argument.
-4. **Sound banks** decoded to WAV sets.
-5. **Models**: mesh format decoded and rooms exported to glTF in session 3
-   (`tools/ext_mesh.py`); characters need their skeleton and animation.
+4. ~~**Sound banks**~~ split into samples in session 4; sample rates wait
+   for the sequences.
+5. ~~**Models**~~: meshes (session 3), skeletons, animation and actor
+   placement (session 4): rooms and characters export to glTF.
 6. Section map filled in: what sections 0–3, 27–57 hold.
 
 ### Phase 2 — map the executable (started in session 2)
@@ -74,9 +75,10 @@ draws a wrong model, we will know what it should have drawn.
 1. Ghidra with ghidra-emotionengine-reloaded (capstone mis-decodes EE-only
    opcodes, see below); import the main ELF and each overlay at 0x00826080.
    Main ELF imported and analysed in session 2 (2 686 functions); AREA00
-   imported in session 3, the other overlays still to do.
-2. Name the SDK: signature-match the 2000-era libraries. Started by hand in
-   session 3 (`tools/ghidra/names_SCES_502.40.tsv`, 42 functions).
+   imported in session 3 and again at the right base (0x008260C0: the file
+   loads with its header) in session 4; the other overlays still to do.
+2. ~~Name the SDK~~: 508 functions from PS2Recomp's signature database in
+   session 4 (`tools/ghidra/names_SCES_502.40.tsv`, 567 names in all).
 3. Find the main loop, ~~the area loader~~ (session 2: `0x00200710`), the
    stream code, the RPC client for `sndn2_driver`.
 4. Dynamic analysis in PCSX2: breakpoints on the loaders, GS dumps of a
@@ -85,8 +87,12 @@ draws a wrong model, we will know what it should have drawn.
 ### Phase 3 — recompile and boot (sessions ~6+)
 
 1. Evaluate **PS2Recomp** (ran-j), an experimental EE→C++ static recompiler
-   with a TOML-driven analyzer and a runtime. Adopt and contribute if it
-   holds up on CodeWarrior output; otherwise build our own on the same model.
+   with a TOML-driven analyzer and a runtime. Session 4: it builds with
+   MinGW, and fed the function map exported from our Ghidra project it
+   recompiles every function of the main executable; its own analyzer,
+   alone, takes the data and the VU microcode for code (the ELF has one
+   section for everything). Adopted for the main executable; overlays and
+   VU1 are ours to solve.
 2. Recompile the main ELF and all 19 overlays (each overlay is its own
    compilation unit at the same address; the runtime swaps function tables
    on load).

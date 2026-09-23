@@ -142,10 +142,29 @@ Section 41 (the Deep Space logo screen) is identical in Italian and Spanish.
 
 ## Sound banks
 
-**Observed**. The first pack of most room records. A small header (0x3C–0x6C
-bytes, containing counts and offsets) followed by an `SShd` header whose
-fields are all 0xFFFFFFFF past the first few, then SPU-ADPCM sample data.
-Driven by the custom IOP driver `sndn2_driver`. Not decoded yet.
+**Observed** on all 35 banks (every one parses and its sizes add up). The
+first pack of most room records; the loader hands it to the IOP driver
+`sndn2_driver` through `0x001FBD00`. Tool: `tools/ext_sound.py`.
+
+| Off | Field |
+|---|---|
+| 00 | u32 total = hd size + bd size |
+| 04 | u32 offset of the hd = 0x20 + 16·n |
+| 0C | u32 n, sub-banks (1–4) |
+| 10 | u32 hd size, u32 bd size, u32 hd size again |
+| 20 | n × `{u32 bd size, u32 offset of the sub-bank header, u32 kind (2 or 4), u32 0}` |
+| hd | n sub-bank headers: `u32 size, u32 bd size, u32 0`, then an `SShd` block |
+| bd | n blocks of SPU-ADPCM samples, in the same order |
+
+Sub-bank 0 (kind 2) holds the room's own sounds; the kind 4 ones repeat
+across rooms (one of 36 samples, 0x1FA40 bytes, is in almost every room:
+probably the player's). An `SShd` block has 128-entry maps, short MIDI-like
+sequences for the effects (`a0 nn 64 … ff 2f 00`; `ff 2f 00` is MIDI's end
+of track), then 16-byte tones: centre note, fine tune, u16 sample offset / 8
+in the bd, ADSR, volume, pan. Samples are plain SPU-ADPCM, each ended by the
+end flag: 91 in room 00. **The sample rate is not stored**: the SPU plays a
+tone at 48 kHz · 2^((note − centre)/12), and the notes come from the
+sequences, not decoded yet.
 
 ## Text
 
@@ -211,76 +230,168 @@ send:
 |---|---|
 | 00 | u32 batches |
 | 04 | u32 qwc of the VIF stream |
-| 08 | u32 ? (1–47 for props and characters; the table size for room geometry) |
-| 0C | u32 bytes = 0x40 + qwc·16 |
-| 10 | u32 0 (3 for characters) |
+| 08 | u32 **bones** (1–47; for room geometry, the table size instead) |
+| 0C | u32 offset of the **rest skeleton** = 0x40 + qwc·16, just after the VIF data |
+| 10 | u32 0 (3: 11-qword vertices) |
 | 14 | f32 min x, y, z |
 | 20 | f32 ? (radius or distance) |
 | 24 | f32 max x, y, z |
 | 30 | VIF: per batch `NOP`/`MSCAL 0`/`MSCNT`, NOPs, `STCYCL 4,4`, `UNPACK V4-32` (FLG, double-buffered), and a final `MSCNT` |
+| [0C] | per bone, 0x50 bytes: u32 index, i32 parent (-1: root), 8 bytes 0, the bone's local 4×4 matrix (VU0 layout, translation in the last row) |
 
-A batch is 32 vertices. A vertex is 4 quadwords (props, rooms) or 11
-(characters: the same 4, then 7 zero quadwords of workspace for the
-microprogram):
+A batch is 32 vertices. A vertex is 4 quadwords (props, rooms, bodies) or 11
+(the heads of section 3: the same 4, then 7 zero quadwords of workspace for
+the microprogram):
 
 | qw | Content |
 |---|---|
 | 0 | u64 TEX0 of its texture (0: untextured), u64 0 |
 | 1 | f32 s, t, q, 0 |
 | 2 | f32 normal (props, characters) **or** vertex colour 0–1 (room geometry, pre-lit) |
-| 3 | f32 x, y, z, w; w = ±1 with flags in the low mantissa bits |
+| 3 | f32 x, y, z, w; w = ±1 with flags and a bone address in the low mantissa bits |
 
-The flags make **triangle strips**: 0x8000 marks a vertex that closes no
-triangle (a strip start, like the GS ADC bit); the sign of w (paired with
-0x4000) gives each triangle's winding. Checked against the normals: 99.8% of
-prop triangles and 99.4% of character triangles face their normals with
-this rule. Room geometry also uses 0x2000, meaning unknown. Batches pad
-with repeats of the last vertex. The game's y axis points down.
+The low 16 bits of w (**verified in the microcode**, session 4):
 
-The executable holds about twenty VU1 microprograms (uploaded as `STMOD,
-BASE, OFFSET, MPG…` packets, 0x002313A4–0x0024146C); the meshes call the one
-at address 0.
+* **bits 3–9: bone × 8**. The skinning microprogram loads them with `ilw`
+  and uses them as the VU1 address of the bone's matrices (8 qwords a bone).
+  Positions and normals are **local to that bone**; one bone per vertex.
+  VU1 data memory wraps at 1024 qwords, so the flag bits do not disturb the
+  address.
+* **0x8000**: the vertex closes no triangle. The room microprogram adds a
+  constant to the output w, setting the GS ADC bit.
+* **the sign of w** (with 0x4000) gives each triangle's winding: 99.8% of
+  prop triangles and 99.4% of character triangles face their normals with
+  this rule. The room microprogram does not test it (no winding cull).
+* **0x2000** (room geometry): not tested by the room microprogram.
+
+Batches pad with repeats of the last vertex. **The world is y up**, like the
+characters: every actor of room 00 stands on the lowest surface below it,
+with the rest of the room above (session 3 read it as y down and exported
+the rooms upside down).
 
 **Where they are:**
 
 | Slot | Content |
 |---|---|
 | 0x44 (rooms) | room geometry: entry 0 is a **grid** (header of 8 words: 32 × 32 cells, cell sizes, origin; then 4 object indices per cell, ≤ 0 empty), the rest ~1 100 objects in world coordinates with vertex colours. The draw code (`0x001D5B60`) walks the grid and culls each object's box on VU0 (`vclip`) |
-| 0x43 (rooms) | ~40 props in local coordinates (doors, crates, tracks, ladders, corpses…), drawn as actors |
-| 0x72 and others | single objects (an organic thing in area 00, spawned twice) |
-| section 3, 0x16–0x19 | the four squad members' **heads** (1 131 triangles each) |
+| 0x43 (rooms) | ~40 props (doors, crates, tracks, ladders, corpses…), up to 13 bones |
+| 0x35 (section 27) | 126 **resident models**: pickups, cases, weapons |
+| 0x72 and others (rooms) | the area's creatures, skinned (30 bones in area 00) |
+| section 28, 0x39–0x3E | the squad's **bodies** (21 bones, head included): 0x39 (page v6) and 0x3E (v10) in the black "SECURITY" suit, 0x3D (v8) and 0x3C (v9) in the navy "F.S" parka, 0x3B (v7) the mutated one |
+| section 3, 0x16–0x19 | four high-detail **heads** (1 131 triangles, 11-qword vertices) |
 | section 3, others | small props, weapons |
 
-Prop models are fetched by index: `table[0x43] + offset[index]`
-(`0x001C6910`). Some corpses carry a placeholder TEX0 (a purple glyph at
-0x1FB0) that the code replaces at run time.
+Some corpses carry a placeholder TEX0 (a purple glyph at 0x1FB0) that the
+code replaces at run time.
 
-**The squad's faces are the section 3 variants.** Each head renders right
-only over some of the character pages in slots 6–10 (v6: slot16 only;
-v8: 17, 18; v10: 17, 18, 19; v7 has none), so the two globals that pick the
-page choose which faces the scene needs.
+**Each squad body renders right over one character page**, the variant in
+brackets above, so the two globals that choose the page (`0x00813287`,
+`0x008137E0`) choose which squad members a scene shows.
+
+## Skeletons and animation
+
+**Verified** on the squad (459 animations), the area creature and every
+enemy set exported (11 models); read in the code (`0x001C6BD0`–`0x001CA130`,
+named in `tools/ghidra/names_SCES_502.40.tsv`). Tool: `tools/ext_anim.py`
+(skinned glTF, one glTF animation per game animation).
+
+Every mesh carries its **rest skeleton** (above). An **animation set** is a
+resource `u32 n, u32 offset[n]` (the "offset table" family of session 3);
+each animation:
+
+| Off | Field |
+|---|---|
+| 00 | u16 bones, u16 frames |
+| 04 | u16 at the end: 0xFFFF loop, 0xFFFE hold, else the animation to chain to (54→53, 94→95, …) |
+| 06 | u16 frames of the blend into the chained animation |
+| 08 | u32 ×3: offsets of the rotation, translation and scale key blocks |
+| 14 | u32 events (0: none): u16 count, then `{u16 frame, u16 flags}` (flags 5, 8, 9 in the enemy sets) |
+| 20 | i32 parent[bones], parents first |
+
+A key block is `u32 offset[bones]`, then one track per bone. A key is 12
+bytes: 80 bits of packed floats (IEEE layout, bias 127) and a u16 frame;
+frame 0xFFFF ends the track:
+
+| Track | Packing | Unpacked by |
+|---|---|---|
+| rotation | 4 × 20 bits: sign, 8 exponent, 11 mantissa → quaternion x, y, z, w | `0x001C8CC0` (`<< 12`) |
+| translation | 3 × 26 bits: sign, 8 exponent, 17 mantissa; 2 bits spare | `0x001C8DC0` (`<< 6`) |
+| scale | the same; the top spare bit of a key clears the bones' velocities | `0x001C8DC0` |
+
+Keys are sparse (every track has frame 0 and the last two frames) and are
+interpolated linearly, rotations by `0x001CA890`. A bone's local transform
+is T · R · S on its parent. The game's matrices are row-vector (the VU0
+library's layout), so **in column-vector terms the stored quaternion is the
+conjugate**. Character space is y up with the feet on the root; the squad's
+hips sit 10.9 units up.
+
+The clock: `0x001C6CE0` advances an actor by a step, 1.0 a tick normally
+(2.6 and 1.6 in some states of the squad's behaviour), counting frames down;
+at the end it loops, holds, or chains with a blend. Whether a tick is 1/50
+or 1/25 s is not settled; the exporter assumes 50.
+
+The actor holds its set at +0x40 and the index at +0x2C; the squad's first
+animation comes from a per-member table at `0x00249580`. Pairing sets and
+models by bone count inside a record works for every set tried:
+
+| Set | Bones | Models |
+|---|---|---|
+| s28 0x3A (459) | 21 | the squad, s28 0x39–0x3E |
+| rooms 0x71 (57) | 30 | the area creature 0x72 (also 0x74, 0x6E, 0x70) |
+| 0x7C (20) | 24 | 0x79, 0x7B: bats |
+| 0x84 (54) | 29 | 0x82, 0x83: tall mutants, one holding a rifle |
+| 0x78 (41) | 22 | 0x75, 0x77: crawlers |
+| 0x7F (38) | 33 | 0x7D, 0x7E: dogs |
+| s21 0x9B (30) | 44 | 0x9C: the armed boss |
+
+The mixed sets in slots 0x96–0x9C hold one-off scenes.
 
 ### Placement
 
-Room geometry needs none. Props and characters are **actors**, placed by
-**spawn tables at the start of each overlay's data section**
-(`AREA00.BIN`: from 0x00829AC0, the first byte of data): 44-byte records
-`u16 1, u16 id, type and parameter words, f32 x, y, z, 0, rotation y
-(radians), 0, pointer to a behaviour function in the executable`
-(0x00128C00, 0x0012A5C0, 0x0015B040…), ended by `0xFFFF`. Parameters name
-model slots (0x0D, a section 3 character, for the first two groups; 0x72).
-Not decoded further: the actor code will say. A separate list of
-flickering lights per room is hard-coded in the executable (`0x001F6630`,
-40-byte entries: model index, translation, rotation), drawn by
-`0x001F6BA0`.
+Room geometry needs none. Props, pickups and characters are **actors**,
+created from **spawn tables** when a room starts. **Verified** in the code
+(`0x001B6E30`, `0x001B70E0`) and on room 00. Tool: `tools/ext_spawn.py`.
+
+    0x0024E3A0  u32 per area: address of a room table
+    room table  u32 per room (the count is the index's): address of a list
+    list        u32 addresses of spawn tables, 0-terminated
+    spawn table 44-byte records up to a first u16 of 0xFFFF
+
+The addresses point into the area's overlay or into the executable. Area 00's
+rooms 0 and 1 share one table of 61 records at the start of the overlay's
+data (`0x00829B00`); room 2 has two. A record:
+
+| Off | Field |
+|---|---|
+| 00 | u16 condition: 0 always; 1 unless flag p is set (a pickup taken); 2–6 tests on the tables at `0x008132D8`/`0x00813358` |
+| 02 | u16 p: low byte → actor +0x9A, the actor's flag; high byte, the condition's index |
+| 04 | u16 class, allocated by `0x001B0260` |
+| 06 | u16: low byte → actor +0x03, high byte → +0x2E |
+| 08 | u16 **model index** → actor +0x0D |
+| 0A | u16 → actor +0x0E |
+| 0C | u16, u16 → actor +0x54, +0x56 |
+| 10 | f32 x, y, z |
+| 1C | f32 rotation x, y, z (radians) |
+| 28 | u32 behaviour function, run every frame |
+
+The actor's matrix is T · Rz · Ry · Rx · S (`0x001C9CA0`). Behaviours choose
+the model: `0x001B1590` takes `table[0x35][index]` (resident),
+`0x001B1670` takes `table[0x43][index]` (the room's props). Pickups
+(`0x0015AFB0`) use the room's props when (+0x03 & 0xF) = 1, the resident
+ones otherwise; the white cases of `0x0021A0D0` are resident model 0x72.
+Placed this way, room 00's pickups sit on its tables and floors.
+
+A separate list of flickering lights per room is hard-coded in the
+executable (`0x001F6630`, 40-byte entries: model index, translation,
+rotation), drawn by `0x001F6BA0`.
 
 ## Other resource families seen in areas
 
 | Family | Header pattern | Guess |
 |---|---|---|
-| offset table | `u32 n, u32 0x10/0x20…, u32 offsets…, 0xFFFFFFFF` | animation or event sets |
-| keyed | `u32 n, 0x01xx0000, 0x00040078, floats near ±1` | skeletons / keyframes (quaternions?) |
-| path | `u32 n, 0x0001xx00, 0xFFFE001C, floats` | cameras or paths |
+| offset table | `u32 n, u32 0x10/0x20…, u32 offsets…, 0xFFFFFFFF` | **animation sets** (session 4), see above |
+| keyed | `u32 n, 0x01xx0000, 0x00040078, floats near ±1` | not animation (the animation parser rejects them); open |
+| path | `u32 n, 0x0001xx00, 0xFFFE001C, floats` | cameras or paths (slot 0x73 of room 00 is passed to the cases' effect) |
 | slot 0x42 | `u32 0x28`, then (count, offset) pairs, rectangles at floor height | collision map (read with slot 0x46 by `0x00199C60`) |
 | slot 0x46 | `u32 n`, offsets with a type in the top bits (0x8, 0xA, 0xC), 52-byte records with planes and boxes | trigger volumes, portals, door planes |
 
@@ -342,4 +453,9 @@ Tool: `python -m ps2kit.pss`.
 | 18 | bss start = load + text + data, aligned to 0x80 (repeated at 1C) |
 | 20 | original file name, e.g. `Area00.bin` |
 
-Text and data follow at 0x40. Tool: `python -m ps2kit.mwo3`.
+Text and data follow at 0x40. **The whole file, header included, is read
+to the load address**, so text starts at load + 0x40 (`0x008260C0`) and data
+right after it (`0x00829B00` for AREA00): every `jal` inside the overlays
+lands on a function prologue with this base, none with text at the load
+address. Session 3 placed AREA00's data 0x40 too low. Tool:
+`python -m ps2kit.mwo3`.

@@ -16,9 +16,9 @@ needed it, then kept free of Extermination-specific knowledge.
 | Layer | Question it answers | Now | Next |
 |---|---|---|---|
 | 1. Recognise | What is on this disc? Which parts are standard? | `fingerprint`: magics, SPU ADPCM heuristic with mono/stereo interleave detection, GS packets, toolchain from `.comment`, SDK library versions, IRX names and versions, overlay regions, file paths named by the code | a knowledge base: each finding linked to the extractor or runtime module that handles it |
-| 2. Extract | Turn standard formats into standard files | `adpcm`, `pss`, `mwo3`, `gs` (packet walker), `vif` (VIF code walker, UNPACK expansion), `gsmem` (GS local memory: write any transfer, read back PSMCT32/24/16, PSMT8/4/8H/4HL/4HH, CSM1 CLUTs, TEX0 decoding and texture rendering) | PSMCT16S and Z formats, CSM2, TIM2, VAG/VAB, SShd banks, IOPRP romdir; memory cards via `ps2mc.py` from pc-rpgmaker3 |
-| 3. Map code | What does the code do, where? | `elf`: segments, reads, lui/addiu xrefs, instruction mix; Ghidra with ghidra-emotionengine-reloaded, driven headless by `tools/ghidra/ExportLoaders.java` (users of strings, of address ranges, or given functions, decompiled to files) and `ApplyNames.java` (a names file applied to the project) | SDK signature matching per library version, overlay-aware import, naming the SDK in the Ghidra project |
-| 4. Translate | Turn EE code into C/C++ | — | recompiler configs generated from layer 3 (for PS2Recomp or our own) |
+| 2. Extract | Turn standard formats into standard files | `adpcm`, `pss`, `mwo3` (overlays; the file loads header included), `gs` (packet walker), `vif` (VIF code walker, UNPACK expansion), `vu` (VU0/VU1 microcode disassembler, MPG uploads from VIF streams and DMA chains), `gsmem` (GS local memory: write any transfer, read back PSMCT32/24/16, PSMT8/4/8H/4HL/4HH, CSM1 CLUTs, TEX0 decoding and texture rendering) | PSMCT16S and Z formats, CSM2, TIM2, VAG/VAB, SShd banks, IOPRP romdir; memory cards via `ps2mc.py` from pc-rpgmaker3 |
+| 3. Map code | What does the code do, where? | `elf`: segments, reads, lui/addiu xrefs, `jal` callers, instruction mix; Ghidra with ghidra-emotionengine-reloaded, driven headless by `tools/ghidra/ExportLoaders.java` (users of strings, of address ranges, or given functions, decompiled to files) and `ApplyNames.java` (a names file applied to the project) | overlay-aware import (seeded with `jal` targets); SDK names now come from PS2Recomp's signature database |
+| 4. Translate | Turn EE code into C/C++ | PS2Recomp (external), fed with the function map exported from Ghidra | overlays as separate units; a VU1 story |
 | 5. Runtime | Replace the hardware | — | SDK-level HLE: cdvd, pad, mc, IPU/movies, SIF RPC dispatch; GS HLE renderer; SPU mixer |
 
 The "ready-made solutions" of the original idea live at the seam between
@@ -55,6 +55,17 @@ one.
 It is pure Python: replaying a 1 MB pack and reading it back takes under a
 second, fine for extraction. The runtime will need the same tables in C.
 
+## The VU disassembler
+
+`ps2kit.vu` decodes both halves of a VU instruction (upper FMAC, lower
+integer/load-store/branch/FDIV/EFU, and `loi` when the I bit is set) from
+the encoding tables, with no dependencies. It finds microcode where games
+keep it: MPG codes in a VIF stream, or in a chain of DMA `cnt` tags ending
+in `ret`, which is how Extermination stores its 22 programs. Checked on all
+of them (about 7 000 instructions): no unknown opcode, and the room and
+skinning programs read as the vertex format predicts (TEX0 / STQ / RGBA /
+XYZF2 GIF output, ADC from w's 0x8000, bone matrices addressed by w).
+
 ## Known gaps
 
 * **capstone cannot disassemble the EE properly**: in MIPS64 mode it decodes
@@ -62,6 +73,8 @@ second, fine for extraction. The runtime will need the same tables in C.
   `por` shows up as raw bytes). ps2kit defers to Ghidra with
   ghidra-emotionengine-reloaded (installed in session 2, release v2.1.37 for
   Ghidra 12.1.2) for anything beyond xref searching.
+* Ghidra's raw import of an overlay finds few functions (28 in AREA00):
+  it has no entry points. Seed them from the `jal` targets.
 * Ghidra's analysis created no references to some globals the code reaches
   with `lui` pairs (the file tables at 0x0028CF40 and 0x0028D000; cause not
   investigated); `ps2kit.elf.xref` finds them, so the two are used together.

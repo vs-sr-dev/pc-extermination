@@ -134,3 +134,45 @@ Results:
 The first try at characters gave piles of fragments: the stride was 4
 quadwords where characters use 11. With 11 the heads came out whole; with
 the wrong face page, psychedelic.
+
+## Session 4 — skeletons, animation, spawns, sounds, VU and PS2Recomp
+
+Goal: the six points of the session 3 plan.
+
+Results:
+
+* **Skeletons and animation decoded** (`tools/ext_anim.py`). Every mesh
+  carries its rest skeleton after the VIF data (header +08 bones, +0C
+  offset); w's low bits hold bone × 8 and positions are local to the bone.
+  Animation sets are the "offset table" family: 12-byte keys of packed
+  20- and 26-bit floats, rotation/translation/scale tracks, loop, hold or
+  chain. The squad's 459 animations and 11 enemy models export to skinned
+  glTF and play in Blender. Section 28 holds the squad's five bodies (four
+  members and the mutated one), each paired with one character page.
+* **Spawn tables decoded and placed** (`tools/ext_spawn.py`): the chain from
+  `0x0024E3A0` through room tables to 44-byte records, read by
+  `0x001B6E30`; model indices resolve to the resident set (slot 0x35) or the
+  room's props (0x43). Room 00 exported with its actors.
+* **Two corrections to earlier sessions.** The world is **y up**, not down:
+  every actor stands on the lowest surface under it, so the room exports of
+  session 3 were upside down (the exporter no longer flips). And overlays
+  are loaded **with their header**: text starts at 0x008260C0, AREA00's data
+  at 0x00829B00; `ps2kit.mwo3` fixed, AREA00 re-imported in Ghidra.
+* **Sound banks** split into their samples (`tools/ext_sound.py`, 35 banks);
+  the sample rate is not stored, so a listening test at three rates is in
+  `build/audio/listen/`.
+* **VU disassembler** in ps2kit (`ps2kit.vu`): 22 microprograms found through
+  their DMA chains, no unknown opcodes. The room program settles the w
+  flags (0x8000 = ADC; winding and 0x2000 not tested); the skinning program
+  uses w's low 16 bits as the VU1 address of the bone matrices.
+* **PS2Recomp built** (MinGW, analyzer and recompiler) and run. Its SCE
+  signature database names 508 SDK functions and agrees with all 19 named by
+  hand; the names file now has 567 entries, applied to the Ghidra project.
+  With the function map exported from our Ghidra project every real
+  function recompiles; the only errors are two synthetic entries in data.
+  Overlays and VU1 microcode are outside its scope.
+
+The first try at a character used an animation's frame 0 as the bind pose
+and the quaternions as stored: the soldier lay on the ground in a twisted
+pose. Conjugating them (the game builds row-vector matrices) stood him up in
+every animation.

@@ -48,12 +48,33 @@ python tools/ext_text.py E:/DATA/INDEX_IT.IDX E:/DATA/DATA_IT.DAT > text_it.txt
 python -m ps2kit.gs out/s02/slot05.bin --list
 python -m ps2kit.gs out/s02/slot05.bin --t8 0 --clut 16,352 --png logo.png
 
+# textures, meshes and rooms -> PNG / glTF
+python tools/ext_tex.py E:/DATA/INDEX_IT.IDX E:/DATA/DATA_IT.DAT --census
+python tools/ext_mesh.py E:/DATA/INDEX_IT.IDX E:/DATA/DATA_IT.DAT \
+    --record s04_r0 --slots 44 --gltf out/room.gltf
+
+# characters with skeleton and every animation -> skinned glTF
+python tools/ext_anim.py E:/DATA/INDEX_IT.IDX E:/DATA/DATA_IT.DAT \
+    --record s28 --slot 3A --mesh s28:39 --variant 6 --gltf out/squad.gltf
+
+# a room with its actors placed from the overlay's spawn tables
+python tools/ext_spawn.py E:/SCES_502.40 E:/OVERLAY/AREA00.BIN \
+    E:/DATA/INDEX_IT.IDX --area 0 --room 0 --dat E:/DATA/DATA_IT.DAT \
+    --gltf out/room00.gltf
+
+# sound banks -> SPU-ADPCM samples as WAV
+python tools/ext_sound.py E:/DATA/INDEX_IT.IDX E:/DATA/DATA_IT.DAT --list
+
 # movies -> MPEG-2 video + WAV
 python -m ps2kit.pss E:/MOVIE_IT/E001.PSS --video e001.m2v --audio e001.wav
 
 # executable: layout, xrefs, raw reads by virtual address
 python -m ps2kit.elf E:/SCES_502.40 --info
 python -m ps2kit.elf E:/SCES_502.40 --xref 0x00284D08
+python -m ps2kit.elf E:/SCES_502.40 --callers 0x001C6CE0
+
+# VU microcode, from the DMA chain that uploads it
+python -m ps2kit.vu E:/SCES_502.40 --dma 0x00237D00
 
 # overlays
 python -m ps2kit.mwo3 E:/OVERLAY/AREA00.BIN
@@ -61,8 +82,10 @@ python -m ps2kit.mwo3 E:/OVERLAY/AREA00.BIN
 
 ## Status
 
-Session 1: disc analysis; index, streamed audio and text solved; first
-textures; porting route chosen. See [docs/00-sessions.md](docs/00-sessions.md)
+Sessions 1–4: disc, index, streamed audio, text, textures, meshes,
+skeletons and animation, actor placement and sound banks are decoded;
+rooms and characters export to glTF. The main executable is mapped in
+Ghidra and recompiles with PS2Recomp. See [docs/00-sessions.md](docs/00-sessions.md)
 for the log,
 [docs/06-attack-plan.md](docs/06-attack-plan.md) for the route,
 [docs/07-next-session.md](docs/07-next-session.md) for what is next and

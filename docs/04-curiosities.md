@@ -90,3 +90,25 @@ character, an "off" command at another. In a few German lines of section 8
 both commands say "off" — "Er lautet YS-4921." and "Ein bestimmtes
 Medium?" — so the code number and the word stay plain, where the French
 "C'est *YS-4921*." shows it styled.
+
+### 13. The hero has a mutated body of his own
+
+Section 28 holds five bodies for a squad of four. The fifth only renders
+right over character page 7, the "mutated tissue" page: it is the infected
+version of a squad member, with a swollen red arm and half of the face gone,
+ready to be swapped in when the story needs it.
+
+### 14. The crawling creature stands up straight
+
+Area 00's creature spends every one of its 57 animations crawling on all
+fours, but its rest skeleton, stored with the mesh, is an upright humanoid
+in a T-pose, like the squad's: a person, before the infection.
+
+### 15. The bone number is a memory address
+
+Each vertex says which bone it follows with the low bits of its w
+coordinate, as bone × 8. The skinning microprogram does not convert it: it
+loads the bits as an integer and reads the bone's matrices straight from
+that VU1 address, eight quadwords per bone. The flag bits above it
+(0x2000–0x8000) fall off the end because VU1 memory wraps at 1024
+quadwords.
