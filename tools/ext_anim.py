@@ -30,7 +30,7 @@ put a child at the end of its parent (bone lengths lie along x). The game
 builds row-vector matrices (the VU0 library's convention), so in the usual
 column-vector terms the stored quaternion is the conjugate: Animation keeps
 (-x, -y, -z, w). Character space has y up, feet on the root (the squad's
-hips sit 10.9 units above it), unlike the rooms, whose y points down. Keys are
+hips sit 10.9 units above it), like the world. Keys are
 sparse: every track has keys on frame 0 and the last two frames, and the
 rest where the motion needs them; values in between are interpolated.
 
@@ -49,6 +49,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import ext_index  # noqa: E402
 import ext_mesh  # noqa: E402
 import ext_tex  # noqa: E402
+from ext_mesh import apply, matmul  # noqa: E402
 
 LAYOUT = ((4, 20), (3, 26), (3, 26))      # rotation, translation, scale
 
@@ -144,15 +145,6 @@ def trs(t, q, s):
             0.0, 0.0, 0.0, 1.0]
 
 
-def matmul(a, b):
-    return [sum(a[4 * i + k] * b[4 * k + j] for k in range(4)) for i in range(4) for j in range(4)]
-
-
-def apply(m, v, w):
-    return tuple(m[4 * i] * v[0] + m[4 * i + 1] * v[1] + m[4 * i + 2] * v[2] + m[4 * i + 3] * w
-                 for i in range(3))
-
-
 def rigid_inverse(m):
     """Inverse of a rotation + translation matrix (scales are 1 in the bind pose)."""
     r = [m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10]]
@@ -163,23 +155,50 @@ def rigid_inverse(m):
             0.0, 0.0, 0.0, 1.0]
 
 
-def export_skinned(path, mem, objs, bind, anims, fps, name="character"):
-    """glTF with a skeleton posed at `bind`'s frame 0, the objects skinned to
-    it, and one glTF animation per entry of `anims` ({label: Animation})."""
-    doc = ext_mesh.Gltf(path, mem, flip_y=False)     # character space is y up already
+def to_trs(m):
+    """Translation and quaternion of a rotation + translation matrix."""
+    tr = m[0] + m[5] + m[10]
+    if tr > 0:
+        k = 2 * math.sqrt(1 + tr)
+        q = ((m[9] - m[6]) / k, (m[2] - m[8]) / k, (m[4] - m[1]) / k, k / 4)
+    elif m[0] > m[5] and m[0] > m[10]:
+        k = 2 * math.sqrt(1 + m[0] - m[5] - m[10])
+        q = (k / 4, (m[1] + m[4]) / k, (m[2] + m[8]) / k, (m[9] - m[6]) / k)
+    elif m[5] > m[10]:
+        k = 2 * math.sqrt(1 + m[5] - m[0] - m[10])
+        q = ((m[1] + m[4]) / k, k / 4, (m[6] + m[9]) / k, (m[2] - m[8]) / k)
+    else:
+        k = 2 * math.sqrt(1 + m[10] - m[0] - m[5])
+        q = ((m[2] + m[8]) / k, (m[6] + m[9]) / k, k / 4, (m[4] - m[1]) / k)
+    return (m[3], m[7], m[11]), q
+
+
+def export_skinned(path, mem, objs, anims, fps, bind=None, name="character"):
+    """glTF with the objects skinned to their skeleton and one glTF animation
+    per entry of `anims` ({label: Animation}). The bind pose is the model's
+    rest pose, or frame 0 of `bind` if given."""
+    doc = ext_mesh.Gltf(path, mem)
     g = doc.g
-    world = bind.pose(0)
-    nb = bind.bones
+    if bind is None:
+        parents = [p for p, _ in objs[0].skeleton]
+        local = [m for _, m in objs[0].skeleton]
+        world = objs[0].rest_pose()
+        trs_ = [to_trs(m) + ((1.0, 1.0, 1.0),) for m in local]
+    else:
+        parents = bind.parents
+        world = bind.pose(0)
+        trs_ = [(bind.sample(1, b, 0), bind.sample(0, b, 0), bind.sample(2, b, 0))
+                for b in range(bind.bones)]
+    nb = len(parents)
     first = len(g["nodes"])
-    for b in range(nb):
-        t, q, s = bind.sample(1, b, 0), bind.sample(0, b, 0), bind.sample(2, b, 0)
+    for b, (t, q, s) in enumerate(trs_):
         g["nodes"].append({"name": "bone%02d" % b, "translation": list(t),
                            "rotation": list(q), "scale": list(s)})
     for b in range(nb):
-        kids = [first + c for c in range(nb) if bind.parents[c] == b]
+        kids = [first + c for c in range(nb) if parents[c] == b]
         if kids:
             g["nodes"][first + b]["children"] = kids
-    roots = [first + b for b in range(nb) if bind.parents[b] < 0]
+    roots = [first + b for b in range(nb) if parents[b] < 0]
     g["scenes"][0]["nodes"] += roots
     ibm = []
     for m in world:
@@ -232,7 +251,8 @@ def main():
     ap.add_argument("--mesh", help="record:slot[:entry] of the model, e.g. s28:39")
     ap.add_argument("--gltf")
     ap.add_argument("--anims", help="animations to export, e.g. 0-20,40 (default all)")
-    ap.add_argument("--bind", type=int, default=0, help="animation whose frame 0 is the bind pose")
+    ap.add_argument("--bind", type=int, help="animation whose frame 0 is the bind pose "
+                    "(default: the model's rest pose)")
     ap.add_argument("--fps", type=float, default=50.0,
                     help="animation frames per second (one per game tick; 50 assumed)")
     ap.add_argument("--variant", type=lambda v: int(v, 0), default=7,
@@ -257,8 +277,9 @@ def main():
             mem = ext_tex.contexts(f, by_name[rec], records,
                                    ext_tex.resident(f, records, a.variant))[0]
             pick = parse_range(a.anims, max(anims) + 1)
-            export_skinned(a.gltf, mem, objs, anims[a.bind],
+            export_skinned(a.gltf, mem, objs,
                            {"anim%03d" % i: anims[i] for i in pick if i in anims}, a.fps,
+                           None if a.bind is None else anims[a.bind],
                            name="%s_%s" % (rec, slot))
 
 

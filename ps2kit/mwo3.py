@@ -15,6 +15,10 @@ byte header, followed by the text and data images back to back:
     +1C  u32  bss start, repeated
     +20  char[32] original file name
 
+The whole file, header included, is read to the load address: text starts
+at load + 0x40. (Checked on Extermination: every jal inside an overlay lands
+on a function prologue with this base, none with text at the load address.)
+
 The main executable reserves one empty PT_LOAD program header per overlay at
 the same load address, whose memsz is text + data + bss; an ELF with many
 zero-filesz segments at one address is the tell-tale sign.
@@ -40,13 +44,28 @@ class Overlay:
     def text(self):
         return self.image[:self.text_size]
 
+    @property
+    def text_va(self):
+        return self.load + HEADER
+
+    @property
+    def data_va(self):
+        return self.load + HEADER + self.text_size
+
     def va_to_off(self, va):
-        return va - self.load
+        """Offset into `image` (text then data) of an address."""
+        return va - self.load - HEADER
+
+    def read(self, va, n):
+        o = self.va_to_off(va)
+        if not 0 <= o <= len(self.image) - n:
+            raise ValueError("address %08X is outside the overlay" % va)
+        return self.image[o:o + n]
 
     def __repr__(self):
-        return ("Overlay(#%d %s load=%08X text=%05X data=%05X bss=%06X bss_start=%08X)"
-                % (self.number, self.name, self.load, self.text_size,
-                   self.data_size, self.bss_size, self.bss_start))
+        return ("Overlay(#%d %s load=%08X text=%08X+%05X data=%08X+%05X bss=%08X+%06X)"
+                % (self.number, self.name, self.load, self.text_va, self.text_size,
+                   self.data_va, self.data_size, self.bss_start, self.bss_size))
 
 
 def main():

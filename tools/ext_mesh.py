@@ -14,8 +14,9 @@ Not every entry of a table is an object: entry 0 of the room geometry
 
 An object is a 0x30-byte header and a VIF1 packet for the VU1 microcode:
 
-    +00 u32 batches   +04 u32 qwc (VIF stream, qwords)   +08 u32 ?
-    +0C u32 bytes = 0x40 + qwc * 16                      +10 u32 0
+    +00 u32 batches   +04 u32 qwc (VIF stream, qwords)
+    +08 u32 bones (the table size for room geometry)
+    +0C u32 offset of the rest skeleton = 0x40 + qwc * 16  +10 u32 0 (3: 11-qword vertices)
     +14 f32 min x, y, z   +20 f32 ? (a radius or distance)   +24 f32 max x, y, z
     +30 VIF: per batch NOP/MSCAL/MSCNT, NOPs, STCYCL 4,4, then one or two
              UNPACK V4-32 of 32 vertices, then a last MSCNT. The
@@ -32,7 +33,8 @@ A vertex, as unpacked into VU memory:
     qw2  f32 normal x, y, z, 0
     qw3  f32 x, y, z, w; w is +-1 with flags in the low mantissa bits:
          0x8000 no triangle ends here (strip start, like the GS ADC bit),
-         the sign (with 0x4000) gives the triangle's winding.
+         the sign (with 0x4000) gives the triangle's winding; bits 3-12
+         hold bone * 8. Positions and normals are local to that bone.
 
 Vertices form triangle strips; every vertex without the 0x8000 flag closes a
 triangle with the two before it. Batches pad with repeats of the last vertex.
@@ -58,6 +60,7 @@ class Object:
         (self.batches, self.qwc, self.kind, self.size, _) = struct.unpack_from("<5I", buf, off)
         vals = struct.unpack_from("<7f", buf, off + 0x14)
         self.bbox, self.radius = (vals[0:3], vals[4:7]), vals[3]
+        self.skeleton = skeleton(buf, off, self.kind, self.size)
         self.vertices = []        # (tex0, (s,t,q), (nx,ny,nz), (x,y,z), wbits)
         self.batch_sizes = []
         end = off + HEADER + 16 * self.qwc
@@ -85,6 +88,13 @@ class Object:
             wbits, = struct.unpack_from("<I", vecs, v + 60)
             self.vertices.append((tex0, stq, nrm, pos, wbits))
 
+    def rest_pose(self):
+        """World matrix of each bone in the rest pose (identity if none)."""
+        world = []
+        for parent, m in self.skeleton:
+            world.append(m if parent < 0 else matmul(world[parent], m))
+        return world
+
     def triangles(self):
         """Yield (i, j, k) vertex indices, batch by batch, as the strips say."""
         base = 0
@@ -98,6 +108,38 @@ class Object:
                 else:
                     yield i - 2, i - 1, i
             base += n
+
+
+def skeleton(buf, off, bones, size):
+    """The rest skeleton after an object's VIF data, or [] (room geometry
+    has none: its +08 word is a table size).
+
+    At object + size, one 0x50-byte record per bone: u32 index, i32 parent
+    (-1 for the root), 8 bytes 0, then the bone's local 4x4 matrix in the
+    VU0 library's row-vector layout (translation in the last row). Returned
+    as (parent, column-vector matrix as a row-major list of 16)."""
+    base = off + size
+    if not 0 < bones < 256 or base + 0x50 * bones > len(buf):
+        return []
+    out = []
+    for k in range(bones):
+        index, parent = struct.unpack_from("<Ii", buf, base + 0x50 * k)
+        if index != k or not -1 <= parent < k:
+            return []
+        m = struct.unpack_from("<16f", buf, base + 0x50 * k + 0x10)
+        out.append((parent, [m[4 * c + r] for r in range(4) for c in range(4)]))
+    return out
+
+
+def matmul(a, b):
+    """4x4 matrices as row-major lists of 16 floats."""
+    return [sum(a[4 * i + k] * b[4 * k + j] for k in range(4)) for i in range(4) for j in range(4)]
+
+
+def apply(m, v, w):
+    """m * (v, w), the first three components."""
+    return tuple(m[4 * i] * v[0] + m[4 * i + 1] * v[1] + m[4 * i + 2] * v[2] + m[4 * i + 3] * w
+                 for i in range(3))
 
 
 def is_object(buf, off=0):
@@ -149,7 +191,7 @@ class Gltf:
     """A glTF 2.0 document under construction: buffers, textures from GS
     memory, meshes; save() writes the .gltf, its .bin and the PNGs."""
 
-    def __init__(self, path, mem, flip_y=True):
+    def __init__(self, path, mem):
         self.path, self.mem = path, mem
         self.out_dir = os.path.dirname(os.path.abspath(path))
         self.stem = os.path.splitext(os.path.basename(path))[0]
@@ -161,7 +203,6 @@ class Gltf:
                       {"magFilter": 9729, "minFilter": 9729, "wrapS": 10497, "wrapT": 10497}],
                   "accessors": [], "bufferViews": [], "buffers": []}
         self.materials = {}
-        self.sy = -1.0 if flip_y else 1.0
 
     def material(self, tex0):
         g = self.g
@@ -211,16 +252,16 @@ class Gltf:
     def mesh(self, name, objs, pose=None):
         """Add a glTF mesh of the objects; None if it has no triangles.
 
-        pose(bone, (x, y, z)) -> (x, y, z) moves bone-local positions (and
-        normals, with w = 0) into place and turns on JOINTS_0/WEIGHTS_0."""
-        sy = self.sy
+        pose(bone, (x, y, z), w) -> (x, y, z) moves bone-local positions (and
+        normals, with w = 0) into place and turns on JOINTS_0/WEIGHTS_0.
+        Without it, objects with more than one bone are put in their rest
+        pose."""
         groups = {}               # (material, has normals) -> pos, nrm, uv, col, joints
         for o in objs:
             normals = has_normals(o)
             V = o.vertices
+            rest = o.rest_pose() if not pose and len(o.skeleton) > 1 else None
             for tri in o.triangles():
-                if sy < 0:
-                    tri = (tri[1], tri[0], tri[2])
                 mat = self.material(V[tri[2]][0])
                 p, n, uv, col, jt = groups.setdefault((mat, normals), ([], [], [], [], []))
                 for i in tri:
@@ -229,11 +270,14 @@ class Gltf:
                         bone = bone_of(wbits)
                         pos, q2 = pose(bone, pos, 1.0), pose(bone, q2, 0.0)
                         jt.append(bone)
-                    p += [pos[0], sy * pos[1], pos[2]]
+                    elif rest:
+                        m = rest[bone_of(wbits)]
+                        pos, q2 = apply(m, pos, 1.0), apply(m, q2, 0.0) if normals else q2
+                    p += pos
                     q = stq[2] or 1.0
                     uv += [stq[0] / q, stq[1] / q]
                     if normals:
-                        n += [q2[0], sy * q2[1], q2[2]]
+                        n += q2
                     else:
                         col += [min(q2[0], 1.0), min(q2[1], 1.0), min(q2[2], 1.0), 1.0]
         prims = []
@@ -279,13 +323,13 @@ def bone_of(wbits):
     return (wbits & 0x1FFF) >> 3
 
 
-def export_gltf(path, meshes, mem, flip_y=True, split=False):
+def export_gltf(path, meshes, mem, split=False):
     """Write a glTF 2.0 file (+ .bin + PNGs) with one node per mesh slot.
 
     Primitives are grouped by TEX0; textures are rendered from GS memory in
-    GS row order, so the vertex s,t map straight onto glTF UVs. The game's y
-    axis points down: flip_y turns it up (and mirrors the winding back)."""
-    doc = Gltf(path, mem, flip_y)
+    GS row order, so the vertex s,t map straight onto glTF UVs. The game's
+    world is y up like glTF's, so coordinates go through unchanged."""
+    doc = Gltf(path, mem)
     for label, objs in meshes.items():
         parent = {"name": label, "children": []}
         doc.node(parent)
