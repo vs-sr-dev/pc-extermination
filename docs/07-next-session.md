@@ -1,23 +1,30 @@
-# TODO — session 2
+# TODO — session 3
 
-Phase 1 of the plan: room textures. The title page already reads back as
-PSMT8; the room pages need PSMT4, and that needs a real GS memory model.
+Phase 1 continues with the **models**, and phase 2 with the code that draws
+them. Textures are done (session 2): `tools/ext_tex.py` gives every room
+texture as PNG, keyed by TEX0.
 
-Done in session 1 already: the packet walker (`ps2kit.gs.walk`), PSMT8 +
-CLUT on the title page, the text dump.
+1. **Mesh format** (slots `0x43`, `0x44`, `0x72`… of the rooms). Known: the
+   resource header `u32 n, u32 qwc, u32 k, u32 bytes = qwc·16 + 0x40`, then
+   64-byte vertices `TEX0 | s t q 0 | 4 floats | x y z w`. To find: the
+   header fields, the second float quadword (normal? colour?), the flag bits
+   in w's mantissa (strip restart / ADC?), how vertices group into
+   primitives. Goal: export one room to glTF with its textures and check it
+   in Blender (the Blender MCP is available).
+2. **Who draws it**: in Ghidra, the users of the slot table entries for the
+   mesh slots (`0x0028D010 + slot * 4`, e.g. `0x0028D11C` for 0x43) —
+   use `ps2kit.elf.xref` too, Ghidra may have no references for them. Does the renderer build GIF
+   packets on the EE, or send the vertices to VU1? Look for VIF `MPG`.
+3. **Overlays in Ghidra**: import `AREA00.BIN` (MWo3 body at 0x00826080)
+   into the same project, as a separate program or an overlay block.
+4. **Text command n**: find the reader of the text slot (`0x3F` →
+   `0x0028D10C`) and the interpreter of the `{3, x, n, -1}` commands.
+5. **Name the SDK** in the Ghidra project: start from the functions already
+   identified by behaviour (sceCdSearchFile `0x00111C28`, sceCdRead
+   `0x00112440`, sceDma* `0x00101BB8`/`0x00101F08`/`0x00102468`) and write
+   the names back with a script.
+6. **Sound banks** if time allows: the header before `SShd`.
 
-1. **GS local-memory model** (`ps2kit/gsmem.py`): page/block/column tables
-   for PSMCT32, PSMCT16, PSMT8 and PSMT4. Write path: apply a transfer at
-   its DBP/DBW. Read path: read any rectangle back in any PSM. Validate by
-   reproducing `unswizzle8` on the title page, then read `s04_r0` as PSMT4.
-2. **Replay a whole room** into one GS memory image (the GS pack and every
-   GS resource) and browse it as PSMT4/PSMT8.
-3. **Hunt TEX0**: search the room's resources for 64-bit values whose TBP0
-   matches the upload blocks (0x2A00, 0x3180…) to pair textures and CLUTs.
-4. **Text tables**: test the voice-clip hypothesis for `{3, 0, n, -1}`.
-5. **Ghidra**: install ghidra-emotionengine-reloaded, import `SCES_502.40`
-   and `AREA00.BIN`, and find the area loader from the index-reading code
-   (xref the `\DATA\INDEX_xx.IDX` path strings at `0x00274880`).
-
-Captures that would help (PCSX2): a GS dump of the title screen and of the
-first room, to compare our GS memory image against the real one.
+Captures that would still help (PCSX2): a GS dump of the first room, to
+compare against `ext_tex.py`, and a savestate in area 00 to check the slot
+table at `0x0028D010` against the index.

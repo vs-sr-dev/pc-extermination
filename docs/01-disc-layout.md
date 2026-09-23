@@ -23,7 +23,7 @@ Language suffixes: `BR` (English — British), `FR`, `GE`, `IT`, `SP`.
 
 | Content | Per language? | Evidence |
 |---|---|---|
-| Game data | yes, but only text differs | The IT and BR indices differ in 238 bytes. Every structural difference is a size or offset shifted by the text resource (slot `0x3F` of an area, `0x40`/`0x41` of section 57). |
+| Game data | text and UI pictures | The IT and BR indices differ in 238 bytes. Every structural difference is a size or offset shifted by the text resource (slot `0x3F` of an area, `0x40`/`0x41` of section 57). The contents also differ in the UI GS packs (title, section 27's second upload, sections 30–49, 55), which carry lettering; the 36 room texture packs are identical in all five languages. |
 | Voice | **no** | One `VOICE.DAT`, so one spoken language for every version — English, judging by the English movies being the ones without subtitles. Other languages get subtitles. |
 | Music | no | One `MUSIC.DAT`. |
 | Movies | partly | 5 of 9 are byte-identical across languages. E001, E006S1, E39S2 and E900 differ in every language, but their audio is identical to the sample in all five: the difference is in the picture. For E39S2 it was checked frame by frame — only a subtitle band differs, burned in for IT, absent in English (`BR`). |
@@ -65,19 +65,20 @@ libipu, libkernl, libcdvd, libmc, libpad, all "2000" builds. IOP modules:
 87 records tile `DATA_xx.DAT` exactly, in all five languages
 (`tools/ext_index.py --verify`).
 
-| Section | Contents (provisional) |
+| Section | Contents (provisional unless marked) |
 |---|---|
 | 0 | system: 4 resources, 1.2 MB |
 | 1 | GS pack + 1 resource |
 | 2 | one GS packet: the title logo, among others |
-| 3 | 45 shared resources (player, weapons, common effects — to confirm) |
-| 4–26 | **areas 00–22**: section = area + 4. A main record (area-wide resources, text in slot `0x3F`) plus one sub-record per room, typically holding a sound bank, a GS texture pack and 4–30 resources |
+| 3 | 45 shared resources: character meshes, and in slots 6–10 five variants of a character texture page (face, uniform, mutated tissue) at GS block 0x1B80, one kicked per area by the loader |
+| 4–26 | **areas 00–22**: section = area + 4 (**confirmed in the code**: the area loader reads section `area + 4`). A main record (area-wide resources, text in slot `0x3F`) plus one sub-record per room, typically holding a sound bank, a GS texture pack and 4–30 resources |
 | 9, 13, 14, 16 | **empty** — areas 05, 09, 10 and 12, which also have no overlay |
-| 27 | GS packets with explicit upload descriptors (UI?) |
-| 28 | six large resources of the model family |
-| 29 | one 3.8 MB resource |
-| 30 | GS pack + 1 resource |
-| 31–49 | **19 GS-only sections — one per area** (maps or loading screens?) |
+| 27 | the **resident texture set**: two GS packets inside its resources ("uploads"), weapons, effects, pickups, HUD at blocks 0x1D00–0x24FF; the second is localised |
+| 28 | six large resources of the model family, textured from the resident set and section 3 |
+| 29 | one 3.8 MB mesh resource drawn with area 00's texture pages; loaded by the generic loader as a special case |
+| 30 | GS pack + 1 resource (localised pack) |
+| 31–38, 42–49 | GS-only, loaded at block 0x1D00: **inventory screens** (localised; checked on 34) |
+| 39–41 | GS-only, loaded at block 0x2A00, full-screen pictures (localised): 39 a "FINE" screen (game over?), 40 the content warning ("Questo gioco contiene scene violente…"), 41 the Deep Space logo |
 | 50–54 | resources `0x86`/`0x87` |
-| 55–56 | GS-only |
+| 55–56 | GS-only; 55 is the ending picture ("EXTERMINATION", "FINE"), localised |
 | 57 | global text: menus, save, item messages |

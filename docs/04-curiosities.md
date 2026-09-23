@@ -20,7 +20,9 @@ are present but empty (size zero), and exactly those four areas — 05, 09, 10
 and 12 — also have no `OVERLAY\AREAnn.BIN`. The numbering was frozen before
 they were dropped. Overlay numbers inside the MWo3 headers are contiguous
 (1–19), so the overlays were relinked after the cut, but the file and
-section numbers were not.
+section numbers were not. The executable still has 23 overlay slots: at boot
+it looks up a file for each, and the four cut slots name the previous area's
+file again (05→`AREA04`, 09 and 10→`AREA08`, 12→`AREA11`).
 
 ### 3. Two areas with almost no code
 
@@ -61,3 +63,22 @@ The English files use the suffix `BR` (British), not `EN` or `UK`.
 The executable names the memory card directory
 `BESCES-50240-DS00-00` with files `EX_DATA.00`–`EX_DATA.04`. `DS` is
 plausibly Deep Space, the developer.
+
+### 9. Every vertex carries its own texture register
+
+The room meshes store, in front of each 64-byte vertex, the full 64-bit GS
+TEX0 register of its texture: 50 000–85 000 copies per room for a few
+hundred distinct values. Wasteful on disc, but it made texture pairing
+trivial to recover, and it means the renderer never looks a material up.
+
+### 10. The textures are upside down
+
+Signs such as "CAUTION! Transformer Room" read upside down in GS memory, but
+not mirrored left to right: the textures are stored bottom row first
+(the convention of BMP files and OpenGL), and the UVs compensate.
+
+### 11. The Spanish logo screen is the Italian one
+
+Every picture with lettering (title, inventory screens, warnings) differs
+between the five languages, except section 41, the Deep Space logo screen,
+which is byte-identical in the Italian and Spanish data.

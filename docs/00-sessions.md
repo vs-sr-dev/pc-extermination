@@ -50,3 +50,50 @@ correlation — found the 0x400 interleave on every track. That test is now
 And the index flag bits were first read as "pack A / pack B" by position;
 tallying the pack contents over all records showed bit 0 is the sound bank
 and bit 16 the GS pack, with the pairs always in that order.
+
+## Session 2 — GS memory, every texture, and the loader
+
+Goal: phase 1 of the plan, room textures; first steps in Ghidra.
+
+Results:
+
+* **GS local memory modelled** (`ps2kit.gsmem`): page, block and column
+  layout of PSMCT32/24/16 and PSMT8/4/8H/4HL/4HH from plain arithmetic, write
+  any transfer, read any rectangle back, CSM1 CLUTs, TEX0 decoding. Its PSMT8
+  read reproduces session 1's verified `unswizzle8` byte for byte; read as
+  PSMT4, the room pages came out as clean texture pages at the first try.
+* **TEX0 found in the meshes**: every 64-byte vertex of the room meshes
+  starts with the TEX0 register of its texture. PSMT4, TBW 8, 16-colour
+  PSMCT32 CLUTs, one CBP per texture.
+* **Every texture resolved** (`tools/ext_tex.py`): with GS memory built as
+  the game builds it — the resident set from section 27's uploads and a
+  character page from section 3, then the area's pack, then the room's —
+  23 278 of 23 687 distinct textures resolve; the rest are 3 false positives
+  and section 29, which resolves over area 00. PNG export, flipped upright
+  (the game stores textures bottom-up: the user spotted the upside-down
+  signs).
+* **GS memory map**: resident 0x1B80–0x24FF, rooms from 0x2A00; room packs
+  identical across languages, UI pictures localised. Sections 31–49 are
+  inventory screens and full-screen pictures (content warning, "FINE",
+  logo), 55 the ending.
+* **Text tables decoded**: header, per-line command records, command table.
+  The `{3, 0, n, -1}` commands open radio conversations, but n is **not** a
+  voice clip (n = 32 opens two different conversations; durations do not
+  match) nor a music track. Left open.
+* **Ghidra set up**: ghidra-emotionengine-reloaded v2.1.37 installed into
+  Ghidra 12.1.2; main executable imported and analysed (2 686 functions);
+  `tools/ghidra/ExportLoaders.java` + `export.sh` decompile the users of a
+  string, an address range, or given functions, headless.
+* **The loader read from the code**: file tables at boot (`0x001FF880`), the
+  area loader state machine (`0x00200710`) that reads index section
+  `area + 4` (**confirmed**), kicks GS packs unchanged on VIF1, and fills a
+  global **slot table** of 256 resource pointers at `0x0028D010`. The cut
+  areas' overlay slots point at the previous area's file.
+
+One correction: session 1 read the record field at 0x0C as flag bits
+(bit 0 sound, bit 16 GS). The loader reads it as two u16 counts, which fits
+every record; `ext_index.py` now does the same.
+
+Ghidra's analysis created no references to the file tables at 0x0028CF40
+and 0x0028D000, although the code addresses them with plain `lui` pairs;
+`ps2kit.elf.xref` found them. The two tools go together.

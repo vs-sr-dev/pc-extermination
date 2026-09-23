@@ -13,13 +13,14 @@ N sub-records at +0x100 + 0x70*k (the rooms of an area). A record:
     +00 u32 id               section number, or sub-record number
     +04 u32 offset           into DATA_xx.DAT, bytes, sector aligned
     +08 u32 size             bytes
-    +0C u32 flags            bit 0: sound bank present, bit 16: GS pack present
+    +0C u16 sound banks      number of sound-bank pairs (0 or 1)
+    +0E u16 GS packs         number of GS-pack pairs (0 or 1)
     +10 u32 uploads          extra (off, size) pairs after the packs (section 27)
     +14 u32 packs_size       bytes taken by the packs at the start of the record
     +18 u32 subrecords       number of sub-records (main record only)
     +1C u32 count            number of resources
-    +20 [u32 off, u32 size]  sound bank, if flags bit 0
-        [u32 off, u32 size]  GS pack, if flags bit 16
+    +20 [u32 off, u32 size]  x sound banks
+        [u32 off, u32 size]  x GS packs
         [u32 off, u32 size]  x uploads, relative like resources; they overlap
                              resources and describe GS packets inside them
         u32 resources[count] (slot << 24) | offset, offset relative to
@@ -31,8 +32,10 @@ textures. Both packs sit at the start of the record, sound bank first, which
 is why resource offsets are relative to offset + packs_size. A resource's
 size is the distance to the next resource in offset order, or to the end of
 the record.
-Slot numbers are resource identifiers local to the section; the slot says
-what the resource is used for, the bytes say what format it is in.
+Slot numbers are global resource IDs: the loader stores each resource's
+address in a 256-entry table indexed by slot, shared by an area's main record
+and its current room. The slot says what the resource is used for, the bytes
+say what format it is in.
 """
 import argparse
 import os
@@ -40,19 +43,18 @@ import struct
 
 SECTION = 0x800
 SUB_BASE, SUB_SIZE = 0x100, 0x70
-FLAG_SOUND, FLAG_GS = 0x1, 0x10000
 
 
 class Record:
     def __init__(self, buf, at, section, sub):
-        (self.id, self.offset, self.size, self.flags, uploads,
-         self.packs_size, self.subrecords, count) = struct.unpack_from("<8I", buf, at)
+        (self.id, self.offset, self.size, sounds, gspacks, uploads,
+         self.packs_size, self.subrecords, count) = struct.unpack_from("<3I2H4I", buf, at)
         self.section, self.sub = section, sub
         p = at + 0x20
         self.packs = {}
-        for bit, name in ((FLAG_SOUND, "sound"), (FLAG_GS, "gs")):
-            if self.flags & bit:
-                self.packs[name] = struct.unpack_from("<2I", buf, p)
+        for n, name in ((sounds, "sound"), (gspacks, "gs")):
+            for k in range(n):
+                self.packs[name if k == 0 else "%s%d" % (name, k)] = struct.unpack_from("<2I", buf, p)
                 p += 8
         self.uploads = [struct.unpack_from("<2I", buf, p + 8 * i) for i in range(uploads)]
         p += 8 * uploads

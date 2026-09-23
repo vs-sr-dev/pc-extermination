@@ -56,24 +56,27 @@ runtime answers those at the highest level that works:
 Understanding every format first makes phases 3–4 debuggable: when the port
 draws a wrong model, we will know what it should have drawn.
 
-1. **GS local-memory model** in `ps2kit`: write transfers as the GS would,
-   read back in any PSM (PSMCT32/24/16, PSMT8/4, CLUT CSM1/CSM2). PSMT8 is
-   done for page-aligned uploads (the title logo); PSMT4 is next.
-2. **Texture extraction** from every GS pack; locate the TEX0 settings that
-   say how each texture is read back (they will be in the model packets).
+1. ~~**GS local-memory model**~~ — done in session 2 (`ps2kit.gsmem`);
+   CSM2, PSMCT16S and Z formats not needed so far.
+2. ~~**Texture extraction**~~ — done in session 2: TEX0 is in every mesh
+   vertex, `tools/ext_tex.py` resolves 23 278 of 23 687 textures; the UI
+   pictures (inventory, full screens) wait for their draw code.
 3. ~~Text dump for all five languages~~ — done in session 1; the tables
-   before the strings remain.
+   before the strings decoded in session 2, except the meaning of one
+   command argument.
 4. **Sound banks** decoded to WAV sets.
 5. **Models**: decode the "model" family, export to glTF, check in Blender.
 6. Section map filled in: what sections 0–3, 27–57 hold.
 
-### Phase 2 — map the executable (in parallel from session 3)
+### Phase 2 — map the executable (started in session 2)
 
 1. Ghidra with ghidra-emotionengine-reloaded (capstone mis-decodes EE-only
    opcodes, see below); import the main ELF and each overlay at 0x00826080.
+   Main ELF imported and analysed in session 2 (2 686 functions); overlays
+   still to do.
 2. Name the SDK: signature-match the 2000-era libraries.
-3. Find the main loop, the area loader (who reads `AREAnn.BIN` and the index
-   sections), the stream code, the RPC client for `sndn2_driver`.
+3. Find the main loop, ~~the area loader~~ (session 2: `0x00200710`), the
+   stream code, the RPC client for `sndn2_driver`.
 4. Dynamic analysis in PCSX2: breakpoints on the loaders, GS dumps of a
    room, to confirm what static reading suggests.
 
