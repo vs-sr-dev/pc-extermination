@@ -1,0 +1,749 @@
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/CMakeLists.txt PS2Recomp-ext/ps2xRuntime/CMakeLists.txt
+--- ps2xRuntime/CMakeLists.txt
++++ ps2xRuntime/CMakeLists.txt
+@@ -253,7 +253,7 @@
+ if(NOT PS2X_ENABLE_FFMPEG)
+     message(STATUS "FFmpeg disabled; MPEG video decode falls back to stub frames")
+     add_library(ffmpeg INTERFACE)
+-elseif(WIN32)
++elseif(WIN32 AND MSVC)  # MinGW takes the pkg-config branch (MSYS2 FFmpeg)
+     include(ExternalProject)
+ 
+     set(FFMPEG_PREBUILT_TAG "n7.1-241205")
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/cmake/ReleaseMode.cmake PS2Recomp-ext/ps2xRuntime/cmake/ReleaseMode.cmake
+--- ps2xRuntime/cmake/ReleaseMode.cmake
++++ ps2xRuntime/cmake/ReleaseMode.cmake
+@@ -1,5 +1,7 @@
+ include(CheckIPOSupported)
+ 
++option(PS2X_ENABLE_LTO "Link-time optimisation for release builds" ON)
++
+ check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_ERROR)
+ 
+ function(EnableFastReleaseMode TargetName)
+@@ -34,7 +36,7 @@
+         endif()
+     endif()
+ 
+-    if(IPO_SUPPORTED)
++    if(IPO_SUPPORTED AND PS2X_ENABLE_LTO)
+         set_property(TARGET ${TargetName} PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+     else()
+         message(WARNING "Interprocedural optimization not supported: ${ipo_error}")
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/include/ps2_runtime.h PS2Recomp-ext/ps2xRuntime/include/ps2_runtime.h
+--- ps2xRuntime/include/ps2_runtime.h
++++ ps2xRuntime/include/ps2_runtime.h
+@@ -551,4 +551,12 @@
+ extern const uint32_t g_ps2RecompiledFunctionTableSlotCount;
+ extern PS2Runtime::RecompiledFunction g_ps2RecompiledFunctionTable[];
+ 
++// Overlays: code units recompiled separately that the game loads to one
++// shared address. Each registers a dense table for its text; the unit whose
++// header is in guest memory (CodeWarrior "MWo3" magic and overlay number at
++// headerAddress) answers lookups in [base, end).
++bool ps2RegisterOverlayFunctionTable(uint32_t headerAddress, uint32_t number,
++                                     uint32_t base, uint32_t end,
++                                     PS2Runtime::RecompiledFunction *table);
++
+ #endif // PS2_RUNTIME_H
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
+--- ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
++++ ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
+@@ -1,3 +1,4 @@
++#include <cstdlib>
+ #include "runtime/ee_scheduler.h"
+ 
+ #include "ps2_log.h"
+@@ -9,6 +10,18 @@
+ #include <limits>
+ #include <stdexcept>
+ 
++extern std::atomic<bool> g_ps2xSchedulerLatchesFrames;
++
++std::atomic<uint32_t> g_ps2xVBlankPeriodMicros{16667u};
++// Host time of the next vblank start, for checkpoints between cycle deadlines.
++static std::atomic<int64_t> s_nextVBlankHostNs{0};
++static const bool s_cyclePacedVsync = std::getenv("PS2X_CYCLE_PACED_VSYNC") != nullptr;
++
++static bool isVBlankEvent(EeEventType type)
++{
++    return type == EeEventType::VBlankStart || type == EeEventType::VBlankEnd;
++}
++
+ namespace
+ {
+     constexpr int KE_OK = 0;
+@@ -31,7 +44,6 @@
+     constexpr uint32_t WEF_OR = 0x01u;
+     constexpr uint32_t WEF_CLEAR = 0x10u;
+     constexpr uint32_t WEF_CLEAR_ALL = 0x20u;
+-    constexpr auto kVBlankPeriod = std::chrono::microseconds(16667);
+     constexpr auto kVBlankDuration = std::chrono::microseconds(500);
+     constexpr uint64_t kAlarmTickMicroseconds = 64u;
+     constexpr uint32_t kDebugPublishDispatchInterval = 4096u;
+@@ -50,7 +62,16 @@
+         return std::chrono::seconds(wholeSeconds) + std::chrono::nanoseconds(remainingNanoseconds);
+     }
+ 
+-    constexpr uint64_t kVBlankPeriodCycles = microsecondsToEeCycles(16667u);
++    // One field: 1/59.94 s in NTSC, 1/50 s in PAL (sceGsResetGraph sets it).
++    std::chrono::microseconds vblankPeriod()
++    {
++        return std::chrono::microseconds(g_ps2xVBlankPeriodMicros.load(std::memory_order_relaxed));
++    }
++
++    uint64_t vblankPeriodCycles()
++    {
++        return microsecondsToEeCycles(g_ps2xVBlankPeriodMicros.load(std::memory_order_relaxed));
++    }
+     constexpr uint64_t kVBlankDurationCycles = microsecondsToEeCycles(500u);
+     constexpr uint64_t kAlarmTickCycles = microsecondsToEeCycles(kAlarmTickMicroseconds);
+ 
+@@ -146,8 +167,8 @@
+     main.status = EeThreadStatus::Ready;
+     m_threads.emplace(main.id, std::move(main));
+     m_readyQueues[0].push_back(kMainThreadId);
+-    scheduleEvent(m_eeCycle + kVBlankPeriodCycles,
+-                  std::chrono::steady_clock::now() + kVBlankPeriod,
++    scheduleEvent(m_eeCycle + vblankPeriodCycles(),
++                  std::chrono::steady_clock::now() + vblankPeriod(),
+                   EeEvent{EeEventType::VBlankStart, 0, 0});
+     publishSnapshot();
+ }
+@@ -371,6 +392,18 @@
+         return true;
+     }
+ 
++    static uint32_t s_hostChecks = 0u;
++    if (!s_cyclePacedVsync && (++s_hostChecks & 0xFFu) == 0u)
++    {
++        const int64_t nextVBlank = s_nextVBlankHostNs.load(std::memory_order_relaxed);
++        if (nextVBlank != 0 &&
++            std::chrono::steady_clock::now().time_since_epoch().count() >= nextVBlank)
++        {
++            m_checkpointPending.store(true, std::memory_order_release);
++            return true;
++        }
++    }
++
+     if (m_eeCycle < m_sliceEndCycle)
+     {
+         return false;
+@@ -1784,7 +1817,11 @@
+             const auto now = std::chrono::steady_clock::now();
+             for (const ScheduledEvent &item : m_deadlines)
+             {
+-                if (item.deadlineCycle <= m_eeCycle &&
++                // A vblank whose host time has come is due whatever the cycle
++                // count; one still ahead in host time is never waited for here.
++                const bool hostDueVBlank = isVBlankEvent(item.event.type) && !s_cyclePacedVsync &&
++                                           item.hostDeadline <= now;
++                if ((item.deadlineCycle <= m_eeCycle || hostDueVBlank) &&
+                     (pacingDeadline == std::chrono::steady_clock::time_point{} ||
+                      item.hostDeadline < pacingDeadline))
+                 {
+@@ -1813,8 +1850,14 @@
+             const auto pacedNow = std::chrono::steady_clock::now();
+             auto firstFuture = std::partition(m_deadlines.begin(), m_deadlines.end(),
+                                               [this, pacedNow](const ScheduledEvent &item)
+-                                              { return item.deadlineCycle <= m_eeCycle &&
+-                                                       item.hostDeadline <= pacedNow; });
++                                              {
++                                                  // Vblanks follow the host clock alone: a game that
++                                                  // polls for the next field in a loop would otherwise
++                                                  // get it only once the loop has run a field's worth
++                                                  // of EE cycles, far slower than real time.
++                                                  const bool hostOnly = isVBlankEvent(item.event.type) && !s_cyclePacedVsync;
++                                                  return (item.deadlineCycle <= m_eeCycle || hostOnly) &&
++                                                         item.hostDeadline <= pacedNow; });
+             due.insert(due.end(),
+                        std::make_move_iterator(m_deadlines.begin()),
+                        std::make_move_iterator(firstFuture));
+@@ -1850,8 +1893,8 @@
+                 scheduleEvent(scheduled.deadlineCycle + kVBlankDurationCycles,
+                               scheduled.hostDeadline + kVBlankDuration,
+                               EeEvent{EeEventType::VBlankEnd, 0, m_vsyncTick + 1u});
+-                scheduleEvent(scheduled.deadlineCycle + kVBlankPeriodCycles,
+-                              scheduled.hostDeadline + kVBlankPeriod,
++                scheduleEvent(scheduled.deadlineCycle + vblankPeriodCycles(),
++                              scheduled.hostDeadline + vblankPeriod(),
+                               EeEvent{EeEventType::VBlankStart, 0, 0});
+             }
+             processEvent(scheduled.event);
+@@ -1867,6 +1910,11 @@
+         requestStop();
+         break;
+     case EeEventType::VBlankStart:
++        // Latch the picture here, between guest time slices: the game cannot
++        // be halfway through flipping buffers or clearing the next one, as it
++        // can be when the host thread latches on its own schedule.
++        g_ps2xSchedulerLatchesFrames.store(true, std::memory_order_release);
++        m_runtime.gs().latchHostPresentationFrame();
+         ++m_vsyncTick;
+         m_runtime.memory().gs().vsyncTick.store(m_vsyncTick, std::memory_order_release);
+         if ((m_vsyncTick & 1u) != 0u)
+@@ -2058,6 +2106,8 @@
+                                 std::chrono::steady_clock::time_point hostDeadline,
+                                 EeEvent event)
+ {
++    if (event.type == EeEventType::VBlankStart)
++        s_nextVBlankHostNs.store(hostDeadline.time_since_epoch().count(), std::memory_order_relaxed);
+     {
+         std::lock_guard lock(m_eventMutex);
+         m_deadlines.push_back(ScheduledEvent{deadlineCycle, hostDeadline, event, ++m_eventSequence});
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
+--- ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
++++ ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
+@@ -5,6 +5,8 @@
+ #include "runtime/gs/ps2_gs_psmct16.h"
+ #include "runtime/ee_scheduler.h"
+ 
++extern std::atomic<uint32_t> g_ps2xVBlankPeriodMicros;
++
+ namespace ps2_stubs
+ {
+     namespace
+@@ -802,6 +804,8 @@
+             g_gparam.omode = static_cast<uint8_t>(omode & 0xFF);
+             g_gparam.ffmode = static_cast<uint8_t>(ffmode & 0x1);
+             writeGsGParamToScratch(runtime);
++            // SCE_GS_PAL = 3: fields at 50 Hz instead of NTSC's 59.94.
++            g_ps2xVBlankPeriodMicros.store((omode & 0xFFu) == 3u ? 20000u : 16683u, std::memory_order_relaxed);
+             uint64_t pmode = makePmode(1, 0, 0, 0, 0, 0x80);
+             uint64_t smode2 = (interlace & 0x1) | ((ffmode & 0x1) << 1);
+             uint64_t dispfb = makeDispFb(0, 10, 0, 0, 0);
+@@ -866,6 +870,8 @@
+         setReturnS32(ctx, 0);
+     }
+ 
++    int32_t gsZbufAddr(PS2Runtime *runtime, uint32_t psm, int32_t w, int32_t h);
++
+     void sceGsSetDefDBuffDc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+         const uint32_t envAddr = getRegU32(ctx, 4);
+@@ -896,14 +902,10 @@
+         const int32_t drawWidth = static_cast<int32_t>(w);
+         const int32_t drawHeight = static_cast<int32_t>(h);
+ 
+-        uint32_t zbufAddr = 0u;
+-        {
+-            R5900Context temp = *ctx;
+-            sceGszbufaddr(rdram, &temp, runtime);
+-            zbufAddr = getRegU32(&temp, 2);
+-        }
++        const uint32_t zbufAddr = static_cast<uint32_t>(gsZbufAddr(runtime, psm, static_cast<int32_t>(w), static_cast<int32_t>(h)));
+ 
+-        const uint32_t fbp1 = zbufAddr;
++        // The second buffer follows the first; the Z buffer comes after both.
++        const uint32_t fbp1 = fbw * (((psm & 2u) != 0u) ? (h + 63u) / 64u : (h + 31u) / 32u);
+         const uint64_t dispfb0 = makeDispFb(fbp1, fbw, psm, 0u, 0u);
+         const uint64_t dispfb1 = makeDispFb(0u, fbw, psm, 0u, 0u);
+ 
+@@ -968,12 +970,7 @@
+         const int32_t drawWidth = static_cast<int32_t>(w);
+         const int32_t drawHeight = static_cast<int32_t>(h);
+ 
+-        uint32_t zbufAddr = 0u;
+-        {
+-            R5900Context temp = *ctx;
+-            sceGszbufaddr(rdram, &temp, runtime);
+-            zbufAddr = getRegU32(&temp, 2);
+-        }
++        const uint32_t zbufAddr = static_cast<uint32_t>(gsZbufAddr(runtime, psm, static_cast<int32_t>(w), static_cast<int32_t>(h)));
+ 
+         GsDBuffMem db{};
+         db.disp[0].pmode = pmode;
+@@ -1036,8 +1033,7 @@
+ 
+         uint32_t psm = param_2 & 0xFU;
+         uint32_t fbw = ((static_cast<uint32_t>(w) + 63u) >> 6) & 0x3FU;
+-        sceGszbufaddr(rdram, ctx, runtime);
+-        int32_t zbuf = static_cast<int32_t>(static_cast<int16_t>(getRegU32(ctx, 2) & 0xFFFF));
++        int32_t zbuf = gsZbufAddr(runtime, psm, w, h);
+ 
+         GsDrawEnv1Mem env{};
+         seedGsDrawEnv1(env,
+@@ -1079,8 +1075,7 @@
+ 
+         uint32_t psm = param_2 & 0xFU;
+         uint32_t fbw = ((static_cast<uint32_t>(w) + 63u) >> 6) & 0x3FU;
+-        sceGszbufaddr(rdram, ctx, runtime);
+-        int32_t zbuf = static_cast<int32_t>(static_cast<int16_t>(getRegU32(ctx, 2) & 0xFFFF));
++        int32_t zbuf = gsZbufAddr(runtime, psm, w, h);
+ 
+         GsDrawEnv2Mem env{};
+         seedGsDrawEnv2(env,
+@@ -1316,19 +1311,18 @@
+         setReturnU32(ctx, oldCallback);
+     }
+ 
+-    void sceGszbufaddr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
++    // libgraph's sceGszbufaddr(psm, w, h): the page after the display
++    // buffers, one of them in interlaced frame mode and two otherwise.
++    int32_t gsZbufAddr(PS2Runtime *runtime, uint32_t psm, int32_t w, int32_t h)
+     {
+-        (void)rdram;
+-        uint32_t param_1 = getRegU32(ctx, 4);
+-        int32_t w = static_cast<int32_t>(static_cast<int16_t>(getRegU32(ctx, 6) & 0xFFFF));
+-        int32_t h = static_cast<int32_t>(static_cast<int16_t>(getRegU32(ctx, 7) & 0xFFFF));
+-
++        w = static_cast<int16_t>(w & 0xFFFF);
++        h = static_cast<int16_t>(h & 0xFFFF);
+         int32_t width_blocks = (w + 63) >> 6;
+         if (w + 63 < 0)
+             width_blocks = (w + 126) >> 6;
+ 
+         int32_t height_blocks;
+-        if ((param_1 & 2) != 0)
++        if ((psm & 2) != 0)
+         {
+             int32_t v = (h + 63) >> 6;
+             if (h + 63 < 0)
+@@ -1358,8 +1352,14 @@
+             product = (product * 0x10000) >> 16;
+         else
+             product = (product * 0x20000) >> 16;
++        return product;
++    }
+ 
+-        setReturnS32(ctx, product);
++    void sceGszbufaddr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
++    {
++        (void)rdram;
++        setReturnS32(ctx, gsZbufAddr(runtime, getRegU32(ctx, 4), static_cast<int32_t>(getRegU32(ctx, 5)),
++                                     static_cast<int32_t>(getRegU32(ctx, 6))));
+     }
+ 
+     void Ps2SwapDBuff(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp
+--- ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp
++++ ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp
+@@ -1,5 +1,7 @@
++#include <cstdlib>
+ #include "Common.h"
+ #include "Pad.h"
++#include "runtime/ee_scheduler.h"
+ 
+ namespace ps2_stubs
+ {
+@@ -266,6 +268,50 @@
+             data[19] = pressureValue(state, portState, kPadBtnR2);
+         }
+ 
++        // PS2X_PAD_SCRIPT="400:right,410:none,440:cross,450:none": from each
++        // vsync tick on, the listed buttons are held (none releases them).
++        // Replaces host input while set, for repeatable runs.
++        bool scriptedPadState(PS2Runtime *runtime, PadInputState &state)
++        {
++            static const char *s_script = std::getenv("PS2X_PAD_SCRIPT");
++            if (!s_script || !runtime)
++                return false;
++            static std::vector<std::pair<uint64_t, uint16_t>> s_steps = []()
++            {
++                static const std::pair<const char *, uint16_t> kNames[] = {
++                    {"select", kPadBtnSelect}, {"l3", kPadBtnL3}, {"r3", kPadBtnR3}, {"start", kPadBtnStart},
++                    {"up", kPadBtnUp}, {"right", kPadBtnRight}, {"down", kPadBtnDown}, {"left", kPadBtnLeft},
++                    {"l2", kPadBtnL2}, {"r2", kPadBtnR2}, {"l1", kPadBtnL1}, {"r1", kPadBtnR1},
++                    {"triangle", kPadBtnTriangle}, {"circle", kPadBtnCircle}, {"cross", kPadBtnCross},
++                    {"square", kPadBtnSquare}, {"none", 0u}};
++                std::vector<std::pair<uint64_t, uint16_t>> steps;
++                std::stringstream all(s_script);
++                std::string item;
++                while (std::getline(all, item, ','))
++                {
++                    const size_t colon = item.find(':');
++                    if (colon == std::string::npos)
++                        continue;
++                    uint16_t pressed = 0u;
++                    std::stringstream names(item.substr(colon + 1));
++                    std::string name;
++                    while (std::getline(names, name, '+'))
++                        for (const auto &n : kNames)
++                            if (name == n.first)
++                                pressed |= n.second;
++                    steps.emplace_back(std::strtoull(item.c_str(), nullptr, 0), pressed);
++                }
++                return steps;
++            }();
++            const uint64_t tick = runtime->eeScheduler().currentVSyncTick();
++            uint16_t pressed = 0u;
++            for (const auto &step : s_steps)
++                if (step.first <= tick)
++                    pressed = step.second;
++            state.buttons = static_cast<uint16_t>(0xFFFFu & ~pressed);
++            return true;
++        }
++
+         bool readPadPortData(int port, int slot, PS2Runtime *runtime, uint8_t *outData, uint32_t dataAddr)
+         {
+             if (!outData)
+@@ -296,6 +342,8 @@
+             }
+ 
+             bool usedBackend = false;
++            if (!useOverride && scriptedPadState(runtime, state))
++                useOverride = true;
+             if (!useOverride)
+             {
+                 uint8_t backendData[32]{};
+@@ -643,6 +691,15 @@
+             return;
+         }
+ 
++        static const bool s_tracePad = std::getenv("PS2X_TRACE_PAD") != nullptr;
++        static uint32_t s_padReads = 0u;
++        static uint16_t s_lastButtons = 0xFFFFu;
++        const uint16_t buttons = static_cast<uint16_t>((data[2] << 8) | data[3]);
++        if (s_tracePad && ((s_padReads++ % 250u) == 0u || buttons != s_lastButtons))
++            std::printf("[pad] read #%u port=%d slot=%d buttons=%04x ra=%08x\n", s_padReads, port, slot,
++                        buttons, getRegU32(ctx, 31)), std::fflush(stdout);
++        s_lastButtons = buttons;
++
+         PS2_IF_AGRESSIVE_LOGS({
+             if (g_padReadLogCount < 48)
+             {
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/Kernel/Syscalls/System.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/Syscalls/System.cpp
+--- ps2xRuntime/src/lib/Kernel/Syscalls/System.cpp
++++ ps2xRuntime/src/lib/Kernel/Syscalls/System.cpp
+@@ -1,6 +1,8 @@
+ #include "Common.h"
+ #include "System.h"
+ 
++extern std::atomic<uint32_t> g_ps2xVBlankPeriodMicros;
++
+ namespace ps2_syscalls
+ {
+     void GsSetCrt(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+@@ -17,6 +19,14 @@
+                 ((static_cast<uint64_t>(frameMode) & 0x1ull) << 1);
+ 
+             gs.smode2 = smode2;
++            // libgraph passes SCE_GS_NTSC (2) or SCE_GS_PAL (3): fields at 59.94 or 50 Hz.
++            if (videoMode == 2 || videoMode == 3)
++            {
++                g_ps2xVBlankPeriodMicros.store(videoMode == 3 ? 20000u : 16683u, std::memory_order_relaxed);
++                std::cout << "[SetGsCrt] interlaced=" << interlaced << " mode=" << videoMode
++                          << " ffmd=" << frameMode << ": field every " << g_ps2xVBlankPeriodMicros.load() << " us"
++                          << std::endl;
++            }
+ 
+             // Keep CRT1 enabled after the BIOS syscall selects a display mode.
+             if ((gs.pmode & 0x3ull) == 0ull)
+@@ -470,6 +480,10 @@
+ 
+     // 0x3C SetupThread
+     // args: $a0 = gp, $a1 = stack, $a2 = stack_size, $a3 = args, $t0 = root_func
++    // Where the main thread's stack is, for the runtime's callback stacks.
++    std::atomic<uint32_t> g_ps2xMainStackBase{0u};
++    std::atomic<uint32_t> g_ps2xMainStackSize{0u};
++
+     void SetupThread(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+         const uint32_t gp = getRegU32(ctx, 4);
+@@ -531,6 +545,11 @@
+         }
+ 
+         scheduler.setupCurrentThread(initialStack, stackSize, getRegU32(ctx, 28));
++        if (stack != 0xFFFFFFFFu && stack != 0u && stackSize != 0u)
++        {
++            g_ps2xMainStackBase.store(stack, std::memory_order_relaxed);
++            g_ps2xMainStackSize.store(stackSize, std::memory_order_relaxed);
++        }
+         setReturnU32(ctx, sp);
+     }
+ 
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp PS2Recomp-ext/ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp
+--- ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp
++++ ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp
+@@ -1,3 +1,4 @@
++#include <cstdlib>
+ #include "runtime/gs/gs_cpu_backend.h"
+ #include "runtime/gs/ps2_gs_common.h"
+ #include "runtime/gs/ps2_gs_psmct16.h"
+@@ -710,6 +711,9 @@
+ 
+ void GSCpuBackend::DrawPrimitive(const GSPrimitiveBatch &batch)
+ {
++    static const bool s_noDraw = std::getenv("PS2X_NO_DRAW") != nullptr;  // profiling aid
++    if (s_noDraw)
++        return;
+     const GSDrawState &state = batch.state;
+     const auto &ctx = state.context;
+     PS2_IF_AGRESSIVE_LOGS({
+@@ -1175,9 +1179,13 @@
+     int y1 = static_cast<int>(v1.y) - ofy;
+     u32 z1 = static_cast<u32>(v1.z);
+ 
+-    if (x0 > x1)
++    // Texture coordinates stay attached to their vertex: a sprite given
++    // right-to-left or bottom-to-top is drawn with its texture mirrored.
++    const bool swapX = x0 > x1;
++    const bool swapY = y0 > y1;
++    if (swapX)
+         std::swap(x0, x1);
+-    if (y0 > y1)
++    if (swapY)
+         std::swap(y0, y1);
+ 
+     const int unclippedX0 = x0;
+@@ -1226,6 +1234,10 @@
+             u1f = (v1.s / q1) * static_cast<float>(texW);
+             v1f = (v1.t / q1) * static_cast<float>(texH);
+         }
++        if (swapX)
++            std::swap(u0f, u1f);
++        if (swapY)
++            std::swap(v0f, v1f);
+ 
+         float spriteW = static_cast<float>(spanX);
+         float spriteH = static_cast<float>(spanY);
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/gs/gs_frontend.cpp PS2Recomp-ext/ps2xRuntime/src/lib/gs/gs_frontend.cpp
+--- ps2xRuntime/src/lib/gs/gs_frontend.cpp
++++ ps2xRuntime/src/lib/gs/gs_frontend.cpp
+@@ -3,9 +3,11 @@
+ #include "ps2_log.h"
+ #include "runtime/ps2_memory.h"
+ #include <atomic>
++#include <chrono>
+ #include <algorithm>
+ #include <cmath>
+ #include <cstdio>
++#include <cstdlib>
+ #include <cstring>
+ #include <iostream>
+ #include <sstream>
+@@ -524,6 +526,10 @@
+     return request;
+ }
+ 
++// Set once the EE scheduler latches frames itself at vblank start, on the
++// game thread; the host loop then only shows what was latched.
++std::atomic<bool> g_ps2xSchedulerLatchesFrames{false};
++
+ void GS::latchHostPresentationFrame()
+ {
+     GSPresentationRequest request{};
+@@ -551,6 +557,48 @@
+         }
+     }
+ 
++    static const bool s_tracePresent = std::getenv("PS2X_TRACE_PRESENT") != nullptr;
++    static uint32_t s_tracePresentCount = 0u;
++    static const auto s_traceStart = std::chrono::steady_clock::now();
++    if (s_tracePresent && s_tracePresentCount < 100000u)
++    {
++        ++s_tracePresentCount;
++        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - s_traceStart).count();
++        uint64_t sum = 0u;
++        for (size_t i = 0; i + 3 < frame.pixels.size(); i += 4 * 97)
++            sum += frame.pixels[i] + frame.pixels[i + 1] + frame.pixels[i + 2];
++        std::cout << std::hex << "[present] ms=" << std::dec << ms << " tick=" << request.vsyncTick << std::hex
++                  << " pmode=" << request.pmode << " smode2=" << request.smode2
++                  << " dispfb1=" << request.dispfb1 << " display1=" << request.display1
++                  << " dispfb2=" << request.dispfb2 << " display2=" << request.display2
++                  << " ctx0.fbp=" << request.contextFrames[0].fbp << " ctx1.fbp=" << request.contextFrames[1].fbp
++                  << std::dec << " out=" << frame.width << "x" << frame.height
++                  << " src=" << frame.sourceFbp << " pref=" << frame.usedPreferred
++                  << " sum=" << sum << std::endl;
++    }
++    // PS2X_DUMP_VRAM=<first tick>: raw local memory and the display
++    // registers of eight consecutive latches, for offline inspection.
++    static const char *s_dumpVram = std::getenv("PS2X_DUMP_VRAM");
++    static uint32_t s_dumpCount = 0u;
++    if (s_dumpVram && s_dumpCount < 8u && request.vsyncTick >= std::strtoull(s_dumpVram, nullptr, 0))
++    {
++        std::vector<uint8_t> vram;
++        if (m_backend)
++            m_backend->SnapshotVram(vram);
++        char name[64];
++        std::snprintf(name, sizeof(name), "vram_%02u_t%llu.bin", s_dumpCount,
++                      static_cast<unsigned long long>(request.vsyncTick));
++        if (FILE *f = std::fopen(name, "wb"))
++        {
++            const uint64_t regs[8] = {request.pmode, request.smode2, request.dispfb1, request.display1,
++                                      request.dispfb2, request.display2, request.vsyncTick, 0u};
++            std::fwrite(regs, sizeof(regs), 1, f);
++            std::fwrite(vram.data(), 1, vram.size(), f);
++            std::fclose(f);
++        }
++        ++s_dumpCount;
++    }
++
+     const bool hasFrame = static_cast<bool>(frame);
+     const uint32_t displayFbp = frame.displayFbp;
+     const uint32_t sourceFbp = frame.sourceFbp;
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/ps2_runtime.cpp PS2Recomp-ext/ps2xRuntime/src/lib/ps2_runtime.cpp
+--- ps2xRuntime/src/lib/ps2_runtime.cpp
++++ ps2xRuntime/src/lib/ps2_runtime.cpp
+@@ -373,6 +373,8 @@
+     }
+ }
+ 
++extern std::atomic<bool> g_ps2xSchedulerLatchesFrames;
++
+ static void UploadFrame(Texture2D &tex, PS2Runtime *rt, uint32_t &outWidth, uint32_t &outHeight)
+ {
+     static uint64_t s_lastPresentationTick = std::numeric_limits<uint64_t>::max();
+@@ -387,7 +389,8 @@
+     static std::vector<uint8_t> s_uploadBuffer(DEFAULT_FB_SIZE, 0u);
+ 
+     const uint64_t currentTick = rt->eeScheduler().currentVSyncTick();
+-    const bool needsLatch = !s_hasLatchedInitialFrame || currentTick != s_lastPresentationTick;
++    const bool needsLatch = !g_ps2xSchedulerLatchesFrames.load(std::memory_order_acquire) &&
++                            (!s_hasLatchedInitialFrame || currentTick != s_lastPresentationTick);
+     if (needsLatch)
+     {
+         rt->gs().latchHostPresentationFrame();
+@@ -1086,6 +1089,60 @@
+         slot = offset >> 2;
+         return slot < g_ps2RecompiledFunctionTableSlotCount;
+     }
++
++    struct OverlayFunctionTable
++    {
++        uint32_t headerAddress;
++        uint32_t number;
++        uint32_t base;
++        uint32_t end;
++        PS2Runtime::RecompiledFunction *table;
++    };
++
++    std::vector<OverlayFunctionTable> &overlayFunctionTables()
++    {
++        static std::vector<OverlayFunctionTable> tables;
++        return tables;
++    }
++
++    // The function of the overlay resident at `address`, or null.
++    PS2Runtime::RecompiledFunction overlayFunction(const uint8_t *rdram, uint32_t address)
++    {
++        if (!rdram || (address & 3u) != 0u)
++            return nullptr;
++        for (const OverlayFunctionTable &t : overlayFunctionTables())
++        {
++            if (address < t.base || address >= t.end)
++                continue;
++            const uint32_t header = t.headerAddress & PS2_RAM_MASK;
++            uint32_t number = 0u;
++            if (std::memcmp(rdram + header, "MWo3", 4) != 0)
++                return nullptr;
++            std::memcpy(&number, rdram + header + 4u, sizeof(number));
++            if (number == t.number)
++            {
++                static uint32_t s_lastNumber = 0u;
++                if (number != s_lastNumber)
++                {
++                    s_lastNumber = number;
++                    std::cout << "[overlay] " << number << " resident, first call 0x" << std::hex << address
++                              << std::dec << std::endl;
++                }
++                return t.table[(address - t.base) >> 2];
++            }
++        }
++        return nullptr;
++    }
++}
++
++bool ps2RegisterOverlayFunctionTable(uint32_t headerAddress, uint32_t number,
++                                     uint32_t base, uint32_t end,
++                                     PS2Runtime::RecompiledFunction *table)
++{
++    if (!table || end <= base || (base & 3u) != 0u)
++        return false;
++    overlayFunctionTables().push_back({headerAddress, number, base, end, table});
++    return true;
+ }
+ 
+ bool PS2Runtime::replaceFunction(uint32_t address, RecompiledFunction func)
+@@ -1112,7 +1169,9 @@
+ bool PS2Runtime::hasFunction(uint32_t address) const
+ {
+     uint32_t slot = 0u;
+-    return generatedFunctionTableSlot(address, slot) && g_ps2RecompiledFunctionTable[slot] != nullptr;
++    if (generatedFunctionTableSlot(address, slot) && g_ps2RecompiledFunctionTable[slot] != nullptr)
++        return true;
++    return overlayFunction(m_boundRdram, address) != nullptr;
+ }
+ 
+ const char *describeGuestBranchKind(PS2Runtime::GuestBranchKind kind)
+@@ -1147,6 +1206,10 @@
+             return fn;
+         }
+     }
++    if (RecompiledFunction fn = overlayFunction(m_boundRdram, address))
++    {
++        return fn;
++    }
+ 
+     std::cerr << "Error: No exact recompiled function for guest PC 0x" << std::hex << address
+               << " tableBase=0x" << g_ps2RecompiledFunctionTableBase
+@@ -1975,6 +2038,12 @@
+     return m_guestHeapConfigured ? m_guestHeapLimit : m_guestHeapSuggestedBase;
+ }
+ 
++namespace ps2_syscalls
++{
++    extern std::atomic<uint32_t> g_ps2xMainStackBase;
++    extern std::atomic<uint32_t> g_ps2xMainStackSize;
++}
++
+ uint32_t PS2Runtime::reserveAsyncCallbackStack(uint32_t size, uint32_t alignment)
+ {
+     if (size == 0u)
+@@ -1990,6 +2059,23 @@
+     }
+ 
+     std::lock_guard<std::mutex> lock(m_asyncCallbackStackMutex);
++    // A game whose main stack is the top of RAM (SetupThread with an explicit
++    // stack, as Extermination's crt0 does: 1 MB at 0x1F00000) would have its
++    // frames overwritten by callback stacks carved from there. Use the
++    // stack's far end instead, a quarter of it, which the game never reaches.
++    const uint32_t mainStackBase = ps2_syscalls::g_ps2xMainStackBase.load(std::memory_order_relaxed);
++    const uint32_t mainStackSize = ps2_syscalls::g_ps2xMainStackSize.load(std::memory_order_relaxed);
++    static bool s_movedOffMainStack = false;
++    if (!s_movedOffMainStack && mainStackSize >= 0x40000u &&
++        m_asyncCallbackStackTop > mainStackBase && m_asyncCallbackStackFloor < mainStackBase + mainStackSize)
++    {
++        s_movedOffMainStack = true;
++        m_asyncCallbackStackFloor = mainStackBase;
++        m_asyncCallbackStackTop = mainStackBase + mainStackSize / 4u;
++        std::cout << "[callback-stacks] main stack " << std::hex << mainStackBase << "+" << mainStackSize
++                  << ": callback stacks in " << m_asyncCallbackStackFloor << "-" << m_asyncCallbackStackTop
++                  << std::dec << std::endl;
++    }
+     uint32_t top = m_asyncCallbackStackTop;
+     if (top > PS2_RAM_SIZE)
+     {
+@@ -2420,6 +2506,17 @@
+ 
+             }
+         });
++        static const bool s_tracePc = std::getenv("PS2X_TRACE_PC") != nullptr;
++        static auto s_lastPcTrace = std::chrono::steady_clock::now();
++        if (s_tracePc && std::chrono::steady_clock::now() - s_lastPcTrace > std::chrono::seconds(2))
++        {
++            s_lastPcTrace = std::chrono::steady_clock::now();
++            std::cout << "[pc] tick=" << m_eeScheduler->currentVSyncTick() << std::hex
++                      << " pc=0x" << m_debugPc.load(std::memory_order_relaxed)
++                      << " ra=0x" << m_debugRa.load(std::memory_order_relaxed)
++                      << " sp=0x" << m_debugSp.load(std::memory_order_relaxed) << std::dec
++                      << " threads=" << m_eeScheduler->snapshot().threads.size() << std::endl;
++        }
+         uint32_t presentWidth = FB_WIDTH;
+         uint32_t presentHeight = DEFAULT_DISPLAY_HEIGHT;
+         UploadFrame(frameTex, this, presentWidth, presentHeight);
+@@ -2430,9 +2527,11 @@
+         const float srcHeight = static_cast<float>(std::max<uint32_t>(1u, presentHeight));
+         const float screenWidth = static_cast<float>(GetScreenWidth());
+         const float screenHeight = static_cast<float>(GetScreenHeight());
+-        const float scale = std::min(screenWidth / srcWidth, screenHeight / srcHeight);
+-        const float dstWidth = srcWidth * scale;
+-        const float dstHeight = srcHeight * scale;
++        // A TV shows any display buffer as a 4:3 picture: a 512 x 256 field
++        // is as tall as a 640 x 448 frame.
++        const float displayAspect = 4.0f / 3.0f;
++        const float dstWidth = std::min(screenWidth, screenHeight * displayAspect);
++        const float dstHeight = dstWidth / displayAspect;
+         const Rectangle srcRect{0.0f, 0.0f, srcWidth, srcHeight};
+         const Rectangle dstRect{
+             (screenWidth - dstWidth) * 0.5f,

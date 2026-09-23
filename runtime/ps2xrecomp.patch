@@ -1,0 +1,52 @@
+diff --git a/ps2xRecomp/src/lib/ps2_recompiler.cpp b/ps2xRecomp/src/lib/ps2_recompiler.cpp
+index bb35a7a..7925100 100644
+--- a/ps2xRecomp/src/lib/ps2_recompiler.cpp
++++ b/ps2xRecomp/src/lib/ps2_recompiler.cpp
+@@ -2002,6 +2002,38 @@ namespace ps2recomp
+             return best;
+         };
+ 
++        // Entry labels inside a real function leave their resume points to
++        // it; an orphan one (code Ghidra kept as a label only, such as a
++        // thread's loop) must register its own.
++        std::vector<std::pair<uint32_t, uint32_t>> ownerRanges;
++        for (const auto &candidate : m_functions)
++        {
++            if (candidate.isRecompiled && !candidate.isStub && !candidate.isSkipped &&
++                !isEntryFunctionName(candidate.name) && candidate.end > candidate.start)
++            {
++                ownerRanges.emplace_back(candidate.start, candidate.end);
++            }
++        }
++        std::sort(ownerRanges.begin(), ownerRanges.end());
++        auto insideOwner = [&](uint32_t address)
++        {
++            auto it = std::upper_bound(ownerRanges.begin(), ownerRanges.end(),
++                                       std::make_pair(address, std::numeric_limits<uint32_t>::max()));
++            while (it != ownerRanges.begin())
++            {
++                --it;
++                if (address < it->second)
++                {
++                    return true;
++                }
++                if (address - it->first > 0x100000u)
++                {
++                    break;
++                }
++            }
++            return false;
++        };
++
+         for (const auto &function : m_functions)
+         {
+             if (!function.isRecompiled || function.isStub || function.isSkipped)
+@@ -2009,7 +2041,7 @@ namespace ps2recomp
+                 continue;
+             }
+ 
+-            if (isEntryFunctionName(function.name))
++            if (isEntryFunctionName(function.name) && insideOwner(function.start))
+             {
+                 continue;
+             }

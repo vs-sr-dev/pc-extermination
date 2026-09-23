@@ -214,3 +214,55 @@ end of the header, 0x50 bytes after where the upload code reads it (the
 header's +0x18). The samples were cut 5 frames late, and the tones' sample
 offsets could not match; with the right base 2 112 of 2 113 do. And a
 stray hunch retired: 22 050 Hz was only the least wrong of three guesses.
+
+## Session 6 — the recompiled game reaches its title screen
+
+Goal: phase 3 proper, from the runtime's first stall to the title screen,
+and a home for the overlays.
+
+Results:
+
+* **The "stall" was the language menu**, drawn wrong. Four runtime bugs,
+  each found by dumping GS memory at a chosen vsync and reading it back with
+  `ps2kit.gsmem`:
+  * *Text upside down*: the game draws its sprites bottom to top, and the
+    runtime's sprite rasteriser swapped the corners without their texture
+    coordinates.
+  * *Every other field black*: the game renders interlaced fields into two
+    512 × 256 buffers at pages 0x00 and 0x40. The runtime's
+    `sceGsSetDefDBuffDc` put the second draw buffer on the Z buffer (0x80),
+    and its `sceGszbufaddr` read `w, h` one register late. The original
+    libgraph code on the disc settled what they should do.
+  * *Occasional black or half-drawn frames*: the host thread latched a frame
+    whenever the vsync counter moved, racing the game's buffer flip and
+    clear. Frames are now latched at vblank start on the game thread.
+  * The 512 × 256 field is shown 4:3, as a television does.
+* **The game ran at half speed** (22–25 fields a second) because a vblank
+  waited for a field's worth of EE cycles as well as for host time. Vblanks
+  now follow the host clock, at 50 Hz for PAL (the runtime assumed 60): the
+  game runs at exactly 50.0 fields a second.
+* **A stack collision**: the runtime carved callback stacks from the top of
+  RAM, where Extermination's crt0 puts the main thread's stack (1 MB at
+  0x1F00000). The first MPEG callback overwrote a saved return address and
+  the game jumped into `.bss`. Callback stacks now use the far end of the
+  main stack.
+* **A recompiler bug**: resume points (the addresses a preempted thread
+  restarts at) were not registered for code that exists only as an entry
+  label, such as the sound thread's loop at `0x001FBA50`. Fixed in
+  `ps2xRecomp`; 22 generated files changed.
+* **Title screen reached**, in every language: language menu, violence
+  warning, SCEE and Deep Space logos, the title with "Nouvelle partie /
+  Charger partie / Option". The memory cards are probed on the way.
+* **Overlays recompiled** (`tools/recomp/`): each of the 19 is its own unit,
+  exported from its Ghidra program, names prefixed `aNN_`, 5 289 functions
+  in all, no errors. The runtime keeps one table per overlay and serves the
+  one whose MWo3 header is in memory, so no loader hook is needed. Not yet
+  exercised: see below.
+* **Tooling for the runtime** (`runtime/`): our changes as patches against
+  PS2Recomp, a build without LTO (a runtime change relinks in 20 s instead
+  of 20 min), scripted pad input and trace switches.
+
+Where it stops: "Nouvelle partie" plays the opening movie (E900), and the
+player waits for decoded pictures that never come; the stream stops after
+33 reads, with FFmpeg (now built in) or without it. The first area, and so
+the first overlay, is behind that movie.

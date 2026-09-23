@@ -99,14 +99,20 @@ draws a wrong model, we will know what it should have drawn.
    alone, takes the data and the VU microcode for code (the ELF has one
    section for everything). Adopted for the main executable; overlays and
    VU1 are ours to solve.
-2. Recompile the main ELF and all 19 overlays (each overlay is its own
-   compilation unit at the same address; the runtime swaps function tables
-   on load).
-3. Runtime stubs until the game reaches its title screen with the GS HLE. Session 5: the
-   runtime builds with the generated code (a clean copy of PS2Recomp at
-   `D:\Tools\PS2Recomp-ext`, generated files in `ps2xRuntime/src/runner`)
-   and the game boots through its IRX loading and file lookups before
-   stalling.
+2. ~~Recompile the main ELF and all 19 overlays~~ (session 6,
+   `tools/recomp/`): each overlay is its own unit with `aNN_` names; the
+   runtime keeps one function table per overlay and serves the one whose
+   MWo3 header is in memory, so the loader needs no hook.
+3. ~~Runtime stubs until the game reaches its title screen~~ with the GS
+   HLE. Session 5: the runtime builds with the generated code (a clean copy
+   of PS2Recomp at `D:\Tools\PS2Recomp-ext`, generated files in
+   `ps2xRuntime/src/runner`) and boots through its IRX loading and file
+   lookups. Session 6: the title screen, at 50 fields a second, after fixes
+   to the runtime's sprites, double buffering, frame latching, vblank
+   timing and callback stacks, and one to the recompiler
+   ([runtime/README.md](../runtime/README.md)).
+4. Past the title: the opening movie (MPEG through FFmpeg), then the first
+   area and its overlay.
 
 ### Phase 4 — the platform layer
 

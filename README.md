@@ -20,6 +20,8 @@ the PAL release, SCES-50240.
     docs/     disc, format and engine analysis, and the plan
     tools/    Extermination-specific tools
     ps2kit/   game-agnostic PS2 toolkit
+    runtime/  our changes to PS2Recomp's runtime and recompiler, and how to
+              build and run the recompiled game
 
 ## Tools
 
@@ -79,6 +81,10 @@ python -m ps2kit.elf E:/SCES_502.40 --callers 0x001C6CE0
 # VU microcode, from the DMA chain that uploads it
 python -m ps2kit.vu E:/SCES_502.40 --dma 0x00237D00
 
+# recompile the 19 overlays into PS2Recomp's runtime (runtime/README.md)
+sh tools/recomp/export_overlays.sh build/ghidra D:/Tools/PS2Recomp/ps2xRecomp/tools/ghidra build/recomp/ov
+python tools/recomp/ovl_recomp.py --recomp .../ps2_recomp.exe --runtime .../PS2Recomp-ext/ps2xRuntime
+
 # overlays: header, function entries, an ELF with the executable for Ghidra
 python -m ps2kit.mwo3 E:/OVERLAY/AREA00.BIN --seeds --host E:/SCES_502.40
 python -m ps2kit.mwo3 E:/OVERLAY/AREA00.BIN --elf area00.elf --host E:/SCES_502.40
@@ -92,9 +98,10 @@ python -m ps2kit.irx E:/IRX/SNDN2DRV.IRX
 Sessions 1–5: disc, index, streamed audio, text, textures, meshes,
 skeletons and animation, actor placement and sound (banks, sequences, real
 sample rates) are decoded; every room exports to glTF with its actors. The
-executable and all 19 overlays are mapped in Ghidra; the executable
-recompiles with PS2Recomp and the result boots as far as its first file
-lookups. See [docs/00-sessions.md](docs/00-sessions.md)
+executable and all 19 overlays are mapped in Ghidra. Session 6: the
+executable and the overlays recompile with PS2Recomp, and the recompiled
+game runs at full speed through its language menu, logos and title screen,
+as far as the opening movie. See [docs/00-sessions.md](docs/00-sessions.md)
 for the log,
 [docs/06-attack-plan.md](docs/06-attack-plan.md) for the route,
 [docs/07-next-session.md](docs/07-next-session.md) for what is next and
