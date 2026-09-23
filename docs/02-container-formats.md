@@ -99,15 +99,9 @@ closed-form remap suffices (`ps2kit.gs.unswizzle8`).
 ### How textures are read back: TEX0 in every vertex
 
 **Verified** on every room. The room meshes (slots `0x43`, `0x44`, `0x72`
-and others, the "model" family) are lists of 64-byte vertices whose first
-quadword is the **TEX0_1 register of that vertex's texture**, upper half zero:
-
-| Off | Content |
-|---|---|
-| 00 | u64 TEX0, u64 0 |
-| 10 | f32 s, t, q, 0 — s and t in 0–1, inset by half a texel |
-| 20 | f32 ×4, not decoded (often 1, 0, 0, 0) |
-| 30 | f32 x, y, z, w — w is ±1 with flag bits in the low mantissa |
+and others) are lists of vertices whose first quadword is the **TEX0_1
+register of that vertex's texture**, upper half zero (full layout under
+[Meshes](#meshes-vu1-packets)).
 
 A room carries 50 000–85 000 such vertices, and 400–880 distinct TEX0
 values. All of them are **PSMT4** (a few PSMT8) with TBW 8, sizes from 32×16
@@ -131,7 +125,7 @@ any room of area 00.
 
 | Blocks | Content | From |
 |---|---|---|
-| 0x1B80–0x1BFF | character page, one of five variants (face, uniform with "SECURITY"/"F.S" patches, mutated tissue); slot 6 is a 256×32 half page, 7–10 are 256×64 | section 3, slots 6–10, chosen by the area loader |
+| 0x1B80–0x1BFF | character page, one of five variants: the squad's faces and uniforms ("SECURITY"/"F.S" patches) in the combinations a scene needs, v7 mutated tissue; slot 6 is a 256×32 half page, 7–10 are 256×64 | section 3, slots 6–10, chosen by the area loader |
 | 0x1D00–0x247F | resident set: player, weapons, muzzle flashes, pickups, keycards, HUD | section 27, upload 0 (slot 0x33) |
 | 0x2480–0x24FF | resident, **localised** (256×32) | section 27, upload 1 (slot 0x34) |
 | 0x1D00… | inventory screen of the area, **localised** (sections 31–38, 42–49), over the resident set | GS-only sections |
@@ -195,18 +189,92 @@ English file leaves all dialogue empty. Example from area 00, Italian:
     Dennis. / Qui, Roger. / Credo ci sia qualcuno
 vivo quaggiù.
 
-## Resource families seen in areas
+## Meshes (VU1 packets)
 
-Not decoded; listed so later sessions can name them. The first 16 bytes are
-enough to sort nearly every resource into one of these:
+**Verified** on the whole disc: 26 999 objects, 917 000 triangles, every
+object's batch count matching its header. Tool: `tools/ext_mesh.py`
+(statistics, glTF export with textures); VIF walker `ps2kit.vif`.
+
+A mesh resource is one object, or `u32 count, u32 offset[count]` and the
+objects. The meshes are VIF1 packets for **VU1 microcode**, stored ready to
+send:
+
+| Off | Field |
+|---|---|
+| 00 | u32 batches |
+| 04 | u32 qwc of the VIF stream |
+| 08 | u32 ? (1–47 for props and characters; the table size for room geometry) |
+| 0C | u32 bytes = 0x40 + qwc·16 |
+| 10 | u32 0 (3 for characters) |
+| 14 | f32 min x, y, z |
+| 20 | f32 ? (radius or distance) |
+| 24 | f32 max x, y, z |
+| 30 | VIF: per batch `NOP`/`MSCAL 0`/`MSCNT`, NOPs, `STCYCL 4,4`, `UNPACK V4-32` (FLG, double-buffered), and a final `MSCNT` |
+
+A batch is 32 vertices. A vertex is 4 quadwords (props, rooms) or 11
+(characters: the same 4, then 7 zero quadwords of workspace for the
+microprogram):
+
+| qw | Content |
+|---|---|
+| 0 | u64 TEX0 of its texture (0: untextured), u64 0 |
+| 1 | f32 s, t, q, 0 |
+| 2 | f32 normal (props, characters) **or** vertex colour 0–1 (room geometry, pre-lit) |
+| 3 | f32 x, y, z, w; w = ±1 with flags in the low mantissa bits |
+
+The flags make **triangle strips**: 0x8000 marks a vertex that closes no
+triangle (a strip start, like the GS ADC bit); the sign of w (paired with
+0x4000) gives each triangle's winding. Checked against the normals: 99.8% of
+prop triangles and 99.4% of character triangles face their normals with
+this rule. Room geometry also uses 0x2000, meaning unknown. Batches pad
+with repeats of the last vertex. The game's y axis points down.
+
+The executable holds about twenty VU1 microprograms (uploaded as `STMOD,
+BASE, OFFSET, MPG…` packets, 0x002313A4–0x0024146C); the meshes call the one
+at address 0.
+
+**Where they are:**
+
+| Slot | Content |
+|---|---|
+| 0x44 (rooms) | room geometry: entry 0 is a **grid** (header of 8 words: 32 × 32 cells, cell sizes, origin; then 4 object indices per cell, ≤ 0 empty), the rest ~1 100 objects in world coordinates with vertex colours. The draw code (`0x001D5B60`) walks the grid and culls each object's box on VU0 (`vclip`) |
+| 0x43 (rooms) | ~40 props in local coordinates (doors, crates, tracks, ladders, corpses…), drawn as actors |
+| 0x72 and others | single objects (an organic thing in area 00, spawned twice) |
+| section 3, 0x16–0x19 | the four squad members' **heads** (1 131 triangles each) |
+| section 3, others | small props, weapons |
+
+Prop models are fetched by index: `table[0x43] + offset[index]`
+(`0x001C6910`). Some corpses carry a placeholder TEX0 (a purple glyph at
+0x1FB0) that the code replaces at run time.
+
+**The squad's faces are the section 3 variants.** Each head renders right
+only over some of the character pages in slots 6–10 (v6: slot16 only;
+v8: 17, 18; v10: 17, 18, 19; v7 has none), so the two globals that pick the
+page choose which faces the scene needs.
+
+### Placement
+
+Room geometry needs none. Props and characters are **actors**, placed by
+**spawn tables at the start of each overlay's data section**
+(`AREA00.BIN`: from 0x00829AC0, the first byte of data): 44-byte records
+`u16 1, u16 id, type and parameter words, f32 x, y, z, 0, rotation y
+(radians), 0, pointer to a behaviour function in the executable`
+(0x00128C00, 0x0012A5C0, 0x0015B040…), ended by `0xFFFF`. Parameters name
+model slots (0x0D, a section 3 character, for the first two groups; 0x72).
+Not decoded further: the actor code will say. A separate list of
+flickering lights per room is hard-coded in the executable (`0x001F6630`,
+40-byte entries: model index, translation, rotation), drawn by
+`0x001F6BA0`.
+
+## Other resource families seen in areas
 
 | Family | Header pattern | Guess |
 |---|---|---|
-| model | `u32 n, u32 qwc, u32 k, u32 bytes (= qwc·16 + 0x40), 0, floats…` | meshes; 64-byte vertices each carrying TEX0 (see GS section) |
 | offset table | `u32 n, u32 0x10/0x20…, u32 offsets…, 0xFFFFFFFF` | animation or event sets |
 | keyed | `u32 n, 0x01xx0000, 0x00040078, floats near ±1` | skeletons / keyframes (quaternions?) |
 | path | `u32 n, 0x0001xx00, 0xFFFE001C, floats` | cameras or paths |
-| GS | DMA tag `…6007`/`…7807` + VIF DIRECT | textures |
+| slot 0x42 | `u32 0x28`, then (count, offset) pairs, rectangles at floor height | collision map (read with slot 0x46 by `0x00199C60`) |
+| slot 0x46 | `u32 n`, offsets with a type in the top bits (0x8, 0xA, 0xC), 52-byte records with planes and boxes | trigger volumes, portals, door planes |
 
 ## Streamed audio
 

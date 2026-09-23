@@ -9,6 +9,7 @@ game, independent of any particular title:
     mwo3        CodeWarrior "MWo3" overlay modules
     gs          GS upload packets (DMA/VIF/GIF) and their image transfers
     gsmem       GS local memory: any transfer in, any format and TEX0 out
+    vif         VIF code streams: walk them, expand UNPACKs
     fingerprint scan a disc tree and report what it recognises
 
 Everything here is pure Python 3.8+ with no dependencies. Game-specific

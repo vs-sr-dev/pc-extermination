@@ -4,12 +4,17 @@ Resolved questions move to the bottom with the session that settled them.
 
 ## Data
 
-1. **Resource formats.** Five families recognised by header (model, offset
-   table, keyed, path, GS — see 02-container-formats.md). The model family's
-   vertices are 64 bytes with TEX0, s/t/q and x/y/z/w; the second quadword
-   of floats, the w flags, and how vertices form strips or triangles are
-   not decoded. The slot number is a global resource ID; a slot → role
-   table is the goal.
+1. **Resource formats.** Meshes are decoded (see 02-container-formats.md);
+   offset tables, keyed, path, collision (0x42) and trigger (0x46) families
+   are not. The slot number is a global resource ID; a slot → role table
+   is the goal.
+1a. **Characters**: the heads are whole, but a body needs its skeleton —
+   where are the bones and the animation (the keyed family?), and how are
+   batches bound to bones? Section 28's large meshes are the next suspects.
+1b. **Spawn tables** in the overlays: the record fields beyond position,
+   rotation and behaviour pointer; which slot and model index a prop uses.
+1c. **Room geometry flag 0x2000** in w: what does the microprogram do with
+   it?
 2. **Sound bank format** — the header before `SShd`, and how programs map to
    samples. Driven by `sndn2_driver`; the loader hands banks to the IOP
    through `0x001FBD00`.
@@ -29,10 +34,8 @@ Resolved questions move to the bottom with the session that settled them.
 
 ## Code
 
-7. Whether models go through VU1 microcode, and how many microprograms there
-   are (look for VIF `MPG` in the data and in the executable). The room
-   meshes carry GS registers per vertex, which suggests they are turned into
-   GIF packets by the EE or VU1 rather than drawn from stored packets.
+7. The VU1 microprograms (about twenty, 0x002313A4–0x0024146C): a VU
+   disassembler in ps2kit would settle the vertex flags and the lighting.
 8. The `sndn2_driver` RPC protocol.
 9. Name the SDK functions in the Ghidra project (libcdvd, libdma, libgraph,
    libpad…): the loader already shows `sceCdSearchFile` at `0x00111C28`,
@@ -56,5 +59,7 @@ Resolved questions move to the bottom with the session that settled them.
   state machine; boot loader `0x001FFC10`, generic section loader
   `0x00200260`, file tables built by `0x001FF880`. See
   02-container-formats.md.
+* **Do models go through VU1?** (session 3): yes. Every mesh is a stored
+  VIF1 packet of vertex batches run by `MSCAL`/`MSCNT`.
 * **Text tables** (session 2): header, per-line command records and the
   command table decoded; only the meaning of n remains (question 3).
