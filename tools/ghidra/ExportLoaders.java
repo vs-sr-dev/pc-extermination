@@ -7,7 +7,8 @@
 // Writes <outdir>/functions.tsv and <outdir>/<needle>.c with the decompiled
 // users of each needle: a substring of a string in memory, "@addr[+len]"
 // for the users of an address range (a table, a global), or "fn:addr+addr..."
-// for the functions at those addresses themselves.
+// for the functions at those addresses themselves (created there if the
+// analysis missed them; the project is opened read-only, so nothing is saved).
 //@category ps2kit
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
@@ -44,7 +45,12 @@ public class ExportLoaders extends GhidraScript {
             Set<String> notes = new TreeSet<>();
             if (needle.startsWith("fn:")) {
                 for (String x : needle.substring(3).split("[,+]")) {
-                    Function f = getFunctionContaining(toAddr(Long.parseLong(x, 16)));
+                    Address at = toAddr(Long.parseLong(x, 16));
+                    Function f = getFunctionContaining(at);
+                    if (f == null) {        // not found by the analysis: make one here
+                        disassemble(at);
+                        f = createFunction(at, null);
+                    }
                     if (f != null) users.add(f);
                 }
                 write(out, needle, users, notes, dec);

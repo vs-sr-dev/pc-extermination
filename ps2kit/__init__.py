@@ -6,7 +6,8 @@ game, independent of any particular title:
     elf         load an EE executable, map addresses, lui/addiu xrefs, callers
     adpcm       SPU (PS-ADPCM) decoding
     pss         Sony PSS movies: MPEG-2 video plus SShd/SSbd audio
-    mwo3        CodeWarrior "MWo3" overlay modules
+    mwo3        CodeWarrior "MWo3" overlay modules: function seeds, ELF wrapper
+    irx         IOP modules: relocation, import and export tables
     gs          GS upload packets (DMA/VIF/GIF) and their image transfers
     gsmem       GS local memory: any transfer in, any format and TEX0 out
     vif         VIF code streams: walk them, expand UNPACKs

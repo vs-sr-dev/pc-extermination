@@ -142,32 +142,97 @@ Section 41 (the Deep Space logo screen) is identical in Italian and Spanish.
 
 ## Sound banks
 
-**Observed** on all 35 banks (every one parses and its sizes add up). The
-first pack of most room records; the loader hands it to the IOP driver
-`sndn2_driver` through `0x001FBD00`. Tool: `tools/ext_sound.py`.
+**Verified** on all 35 banks: every sub-bank header parses, all 2 996
+effect sequences read to their end, and 2 112 of the 2 113 sample offsets
+the tones give land on a sample start. The first pack of most room records.
+Tool: `tools/ext_sound.py`.
 
 | Off | Field |
 |---|---|
 | 00 | u32 total = hd size + bd size |
-| 04 | u32 offset of the hd = 0x20 + 16·n |
+| 04 | u32 offset of the first sub-bank header = 0x20 + 16·n |
 | 0C | u32 n, sub-banks (1–4) |
-| 10 | u32 hd size, u32 bd size, u32 hd size again |
+| 10 | u32 hd size (this header included), u32 bd size |
+| 18 | u32 offset of the bd (= hd size) |
 | 20 | n × `{u32 bd size, u32 offset of the sub-bank header, u32 kind (2 or 4), u32 0}` |
-| hd | n sub-bank headers: `u32 size, u32 bd size, u32 0`, then an `SShd` block |
+| … | n sub-bank headers, each running to the next |
 | bd | n blocks of SPU-ADPCM samples, in the same order |
 
-Sub-bank 0 (kind 2) holds the room's own sounds; the kind 4 ones repeat
-across rooms (one of 36 samples, 0x1FA40 bytes, is in almost every room:
-probably the player's). An `SShd` block has 128-entry maps, short MIDI-like
-sequences for the effects (`a0 nn 64 … ff 2f 00`; `ff 2f 00` is MIDI's end
-of track), then 16-byte tones: centre note, fine tune, u16 sample offset / 8
-in the bd, ADSR, volume, pan. Samples are plain SPU-ADPCM, each ended by the
-end flag: 91 in room 00. **The sample rate is not stored**: the SPU plays a
-tone at 48 kHz · 2^((note − centre)/12), and the notes come from the
-sequences, not decoded yet. By ear (session 4, room 00, the same samples at 22 050,
-32 000 and 48 000 Hz) all three were plausible and 22 050 Hz the most
-natural; `ext_sound.py` uses it by default until the sequences give the
-real rate of each effect.
+Session 4 read the bd from `+04 + hd size`, 0x50 bytes too late: the upload
+code (`0x001FBD70`) reads it from `bank + [+0x18]`. It copies each block to
+IOP memory and SPU memory at a base chosen by the kind (table at
+`0x00265400`): kind 2 is the room's own, kind 4 the blocks shared across
+rooms. Every sample ends with Sony's end frame `00 07 77 77 …`.
+
+### The sequencer is on the EE
+
+`sndn2_driver` (`ps2kit.irx` reads its imports: libsd, sifcmd, thbase…)
+only plays voices. The sequencer is EE code, run once a frame by
+`0x001152D8` over 48 tracks and 48 voices, which sends voice commands
+(`0x001157F0`: pitch, volume, address, ADSR, key on/off) to the IOP. A
+sub-bank is registered with its SPU address by `0x00119528`; offsets below
+are from the start of the sub-bank header:
+
+| Off | Field |
+|---|---|
+| 00 | u32 ?, u32 bd size, u32 0 |
+| 0C | `"SShd"` |
+| 10 | u32 offset of the music programs (-1 on every bank) |
+| 14 | u32 offset of the velocity table: u16, then 128 bytes (identity) |
+| 18 | u32 offset of an LFO wave (64 bytes of a sine), -1 if none |
+| 1C | u32 offset of the effect table |
+| 20 | u32 offset of the effect channels: 16 bytes, 48 × 16-byte channel states, then u16 last program and a u16 offset per program |
+| 24 | u32 offset of the program list, which the program offsets count from |
+
+A **program** is 8 bytes — mode (0xFF: one tone per key), volume, pan, 0,
+bend range, 0x7F, first key, last key — then one 16-byte **tone** per key:
+
+| Off | Field |
+|---|---|
+| 0 | u8 lowest, highest voice |
+| 2 | u8 centre note, s8 fine tune in 1/16 semitone |
+| 4 | u16 sample offset in the sub-bank's bd / 8 |
+| 6 | u16 ADSR1, u16 ADSR2 |
+| A | u8 ?, volume, pan, bend range, 0x7F, flags (1, 2 reverb, 0x10, 0x20, 0x40, 0x80) |
+
+The **effect table** is `u16 last group`, then a u16 offset (from the table)
+per group of `u16 last index` and a u16 offset per sequence. The game
+starts an effect with `0x00119EA0(bank, group, index)` (called from the
+effect API at `0x001FC584`). A sequence is MIDI-like, with a variable-length
+delta after each event:
+
+| Event | Meaning |
+|---|---|
+| `a0 key velocity program` | key on (velocity 0: key off) |
+| `b0 07 time value program key` | volume ramp |
+| `b0 0a time value program key` | pan |
+| `b0 41 time value program key` | pitch glide |
+| `b0 60 a b c` | loop |
+| `ff 2f 00` | end |
+
+`0x00119650` plays the other kind of sequence, `"SSsq"` files with 0x90 notes
+and key ranges; none were found in the data yet.
+
+### Sample rates
+
+The key picks the tone (key − first key) and, against its centre note, the
+pitch: `0x00117918` reads a table of 16 steps a semitone at `0x002428F0`
+(0x1000 at the centre, two typos in it), and the key-on `0x00115850` scales
+the result by 44 100 / 48 000 for the 48 kHz SPU2. So a tone plays its
+sample at
+
+    44100 · 2^((key − centre)/12 + fine/192) Hz
+
+Most tones come out at 16 049, 32 097 or 8 024 Hz: 16 000, 32 000 and
+8 000 Hz rounded to the 1/16 semitone. Others replay a sample lower or
+higher for variety (one room 00 sample is keyed at 7 519 and 16 881 Hz);
+some silent tones (volume 0) play at 5 kHz. Played this way the room 00
+effects sound right (**confirmed by ear**, session 5); session 4's 22 050 Hz
+was simply the closest of the rates tried. `ext_sound.py --wav` writes each
+sample at the rate of the tone keyed most often; `--tones` lists them all.
+
+2 125 samples, 2 113 keyed by a tone. The other 12 are the same 6 samples in
+two sub-banks with no programs (`s07_r1` b3, `s21` b2): open.
 
 ## Text
 
@@ -267,6 +332,19 @@ The low 16 bits of w (**verified in the microcode**, session 4):
   this rule. The room microprogram does not test it (no winding cull).
 * **0x2000** (room geometry): not tested by the room microprogram.
 
+**Lighting and clipping in the microcode** (session 5). The skinning
+program (`0x00236020`) gets 8 qwords a bone: a 4×4 position matrix, then 3
+rows of a **light matrix** (the directions of three directional lights,
+turned into bone space), and per draw a colour matrix (VU1 1013–1016: three
+light colours and the ambient). A vertex's colour is ambient + Σ max(0,
+N·Lᵢ)·Cᵢ, clamped to 255 by adding 2²³ and taking the mantissa (no `ftoi`):
+libvu0's normal-light and light-colour matrices. Both it and the room
+program reject a triangle whose three vertices lie outside one clip plane;
+the room program's companion `0x002382A0` also clips the ones that cross a
+plane (Sutherland–Hodgman against x, y and w, in four MPG blocks) and kicks
+the polygon it makes. A port drawing natively needs the lighting formula and
+none of the clipping.
+
 Batches pad with repeats of the last vertex. **The world is y up**, like the
 characters: every actor of room 00 stands on the lowest surface below it,
 with the rest of the room above (session 3 read it as y down and exported
@@ -330,8 +408,13 @@ hips sit 10.9 units up.
 
 The clock: `0x001C6CE0` advances an actor by a step, 1.0 a tick normally
 (2.6 and 1.6 in some states of the squad's behaviour), counting frames down;
-at the end it loops, holds, or chains with a blend. Whether a tick is 1/50
-or 1/25 s is not settled; the exporter assumes 50.
+at the end it loops, holds, or chains with a blend. **A tick is one pass of
+the main loop, 1/50 s** (session 5): the loop at `0x001AAF38`–`0x001AB140`
+clears the vblank counter `0x00813A18` (incremented by the vblank callback
+`0x001AB150`), updates and draws, waits for at least one vblank, sets the
+half-line offset of the current field and puts the display environment. No
+frame skip and no scaling by elapsed time: when a frame overruns a field,
+the game slows down.
 
 The actor holds its set at +0x40 and the index at +0x2C; the squad's first
 animation comes from a per-member table at `0x00249580`. Pairing sets and
@@ -378,11 +461,49 @@ data (`0x00829B00`); room 2 has two. A record:
 | 28 | u32 behaviour function, run every frame |
 
 The actor's matrix is T · Rz · Ry · Rx · S (`0x001C9CA0`). Behaviours choose
-the model: `0x001B1590` takes `table[0x35][index]` (resident),
-`0x001B1670` takes `table[0x43][index]` (the room's props). Pickups
-(`0x0015AFB0`) use the room's props when (+0x03 & 0xF) = 1, the resident
-ones otherwise; the white cases of `0x0021A0D0` are resident model 0x72.
-Placed this way, room 00's pickups sit on its tables and floors.
+the model on their first frame, and every path ends in `0x001CADD0`, which
+sets the mesh at actor +0x44:
+
+| Setter | Mesh |
+|---|---|
+| `0x001B1590` | `table[0x35][model]`, resident |
+| `0x001B1670` | `table[0x43][model]`, the room's props |
+| `0x001B1880(actor, slot, anim slot)` | `table[slot]`; the creatures' class inits pick the slot from the model byte |
+| `0x001D1470(actor, mesh)` | slots 0x1A and 0x20 of section 3 |
+
+The classes, from the behaviour addresses in the spawn records (**verified**
+by reading each class init; `CLASSES` in `ext_spawn.py`):
+
+| Behaviour | Class | Mesh (animations) |
+|---|---|---|
+| `0x0015AFB0` | pickup | 0x43 if (+0x03 & 0xF) = 1, else 0x35 |
+| `0x0021A0D0` | container | 0x43 if +0x03 = 0 and +0x2E = 0x28, else 0x35 (white cases: 0x72) |
+| `0x0021A3F0`, `0x001C50A0` | prop | 0x43 |
+| `0x001551B0` | breakable | 0x43; resident 0x22 or 0x29 once broken |
+| `0x001C0EB0` | resident | 0x35 |
+| `0x00128C00`, `0x0012A5C0` | **larva**, the basic enemy (15 bones) | s03 0x0D, or 0x0E when `0x00813308` = −1 (0x0F) |
+| `0x0012E390` | area creature | 0x72, 0x74 with bit 7; 0x6E, 0x70 with bit 0 (0x71) |
+| `0x001383B0` | bat | 0x79, 0x7B (0x7C) |
+| `0x0013D2C0` | crawler | 0x75, 0x77 (0x78) |
+| `0x00141D10` | dog | 0x7D, 0x7E (0x7F) |
+| `0x00147380` | tall mutant | 0x82, 0x83 (0x84) |
+| `0x001C1800` | a dark spiked growth, animated (guess from its look) | s03 0x24 (0x25) |
+| `0x001BF490`; `0x001BFE80`, `0x001C0AB0` | a flat patch of flesh; an egg pod (guesses) | s03 0x1A; s03 0x20 |
+| `0x001E4720` | sprite emitter with a sound (0x411 + model): no mesh | |
+| `0x0015AB10` | volume sized from `0x00248E10`: no mesh | |
+
+For the creatures, bit 7 of the model byte picks the second model, and the
+global `0x00813388` = −1 forces it. The overlays define classes of their
+own, at addresses that repeat from one overlay to the next: most are a door
+and a prop pair built on `ActorInitRoomProp`, present in almost every
+overlay; area 01's `0x008284D0` takes the model byte as the slot ('G' 0x47,
+'K' 0x4B), area 04's `0x00826C80` slot 0x4E (0x52).
+
+A slot resolves as the loader fills the table: the room record, the area's
+main record, then the resident sections 27, 28, 3 and 0–2. `ext_spawn.py
+--all` exports all 37 rooms: 804 actors, 684 with a mesh, 99 without one by
+design (emitters, volumes), 21 of classes not read yet. In room 00 six larvae
+feed on a corpse, a document folder beside it (**confirmed** in Blender).
 
 A separate list of flickering lights per room is hard-coded in the
 executable (`0x001F6630`, 40-byte entries: model index, translation,
@@ -462,3 +583,10 @@ right after it (`0x00829B00` for AREA00): every `jal` inside the overlays
 lands on a function prologue with this base, none with text at the load
 address. Session 3 placed AREA00's data 0x40 too low. Tool:
 `python -m ps2kit.mwo3`.
+
+The executable enters an overlay through a per-area switch of `jal`s
+(`0x001E8328`–`0x001E8598`) and through pointer tables (`0x00259E9C`,
+0x30-byte entries; `0x00278418`); the spawn tables hold the overlay's actor
+behaviours. The 19 overlays hold 1 (areas 18 and 22: a single init) to 46
+functions by `python -m ps2kit.mwo3 --seeds --host`; all are imported in
+Ghidra as ELFs with the executable (session 5).

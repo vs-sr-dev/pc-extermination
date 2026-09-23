@@ -576,3 +576,29 @@
 0x001282e8	__negsf2
 0x00128320	__make_fp
 0x00128350	fptodp
+# session 5: sound sequencer (EE side), actors, main loop
+0x001152d8	SeqTick	once a frame: 48 tracks, then voice commands to the IOP
+0x001157f0	SndVoiceCmd	(command, voice, a, b) queued for sndn2_driver
+0x00115850	SeqKeyOnA0	a0 key velocity program: tone = key - first key
+0x00115e50	SeqKeyOn90	0x90 note with key ranges (SSsq music)
+0x00117088	SeqReadEvent	status (running), data bytes, program lookup
+0x00117918	Note2Pitch	(centre, key, fine, bend, range) -> pitch, table 0x002428F0
+0x00119528	SndRegisterBank	(sub-bank header, SPU address)
+0x00119650	SeqPlaySSsq	(bank, "SSsq" sequence)
+0x00119ea0	SndPlayEffect	(bank | 0x8000, group, index)
+0x001fbd70	SoundBankUploadStep	bd from bank + [+0x18], SPU base per kind (0x00265400)
+0x001cadd0	ActorSetMesh	actor +0x44 = mesh
+0x001b1880	ActorModelSlot	(actor, mesh slot, animation slot)
+0x001d1470	ActorSetMesh5
+0x001ab150	VblankCallback	counts vblanks (0x00813A10, 0x00813A18), field to 0x00813A08
+0x00206c00	MovieWaitField	sceGsSyncV until the field changes
+0x00128ab0	LarvaInit	mesh s03 0x0D (0x0E if 0x00813308 == -1), anims 0x0F
+0x00128c00	LarvaBehaviour
+0x0012a5c0	LarvaBehaviour2
+0x0012e550	CreatureInit	0x72/0x74, bit 0: 0x6E/0x70; anims 0x71
+0x00138530	BatInit	0x79/0x7B, anims 0x7C
+0x0013d480	CrawlerInit	0x75/0x77, anims 0x78
+0x00141ef0	DogInit	0x7D/0x7E, anims 0x7F
+0x00147590	MutantInit	0x82/0x83, anims 0x84
+0x001e4720	EmitterBehaviour	sprites and a sound (0x411 + model)
+0x0015ab10	VolumeBehaviour	box from 0x00248E10

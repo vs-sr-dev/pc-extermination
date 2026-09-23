@@ -176,3 +176,41 @@ The first try at a character used an animation's frame 0 as the bind pose
 and the quaternions as stored: the soldier lay on the ground in a twisted
 pose. Conjugating them (the game builds row-vector matrices) stood him up in
 every animation.
+
+## Session 5 — sound rates, every room, overlays, the clock, VU, runtime
+
+Goal: the six points of the session 4 plan.
+
+Results:
+
+* **Sound decoded to the note** (`tools/ext_sound.py`). The IOP driver
+  imports no pitch conversion (`ps2kit.irx`, new), so the sequencer had to
+  be on the EE: it is (`0x001152D8`), reading the `SShd` header directly —
+  programs, 16-byte tones, an effect table and MIDI-like effect sequences.
+  A tone plays at 44 100 · 2^((key − centre)/12 + fine/192) Hz: mostly 8, 16
+  and 32 kHz. The user confirmed the room 00 effects by ear.
+* **Every room with its actors** (`ext_spawn.py --all`): the model setter of
+  each class traced from the call graph; 37 rooms, 804 actors, 684 with a
+  mesh, 99 meshless by nature. The "humans" are **larvae**, the basic enemy
+  (confirmed by the user, feeding on a corpse in room 00); the "debris" is a
+  sprite emitter.
+* **All 19 overlays in Ghidra**: `ps2kit.mwo3` now seeds functions and wraps
+  an overlay with its host executable in an ELF; each imports and analyses
+  in about 20 s. Their actor classes are mostly one door/prop pair repeated.
+* **The clock**: one main-loop pass a tick, 1/50 s, no frame skip; fields
+  are rendered with a half-line offset.
+* **VU1**: three directional lights plus ambient in the skinning program;
+  `0x002382A0` is a full triangle clipper.
+* **The recompiled game boots.** PS2Recomp's runtime (with its IOP
+  emulator) builds with our 23 000 generated files under MinGW (`-march=native`
+  for its SSE4 paths, ffmpeg off, LTO link about 20 minutes). Run on
+  `SCES_502.40`, it loads the six IRX modules, finds the index, the data
+  and all 19 overlays with `sceCdSearchFile` (English by default; the cut
+  areas repeat their neighbour's file as the table says), kicks 64
+  small VIF1 packets, then goes quiet: the first stall to chase.
+
+One correction to session 4: the bank reader took the sample data from the
+end of the header, 0x50 bytes after where the upload code reads it (the
+header's +0x18). The samples were cut 5 frames late, and the tones' sample
+offsets could not match; with the right base 2 112 of 2 113 do. And a
+stray hunch retired: 22 050 Hz was only the least wrong of three guesses.

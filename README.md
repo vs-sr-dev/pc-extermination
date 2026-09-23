@@ -61,9 +61,12 @@ python tools/ext_anim.py E:/DATA/INDEX_IT.IDX E:/DATA/DATA_IT.DAT \
 python tools/ext_spawn.py E:/SCES_502.40 E:/OVERLAY/AREA00.BIN \
     E:/DATA/INDEX_IT.IDX --area 0 --room 0 --dat E:/DATA/DATA_IT.DAT \
     --gltf out/room00.gltf
+# ... or every room of every area
+python tools/ext_spawn.py E:/SCES_502.40 E:/OVERLAY E:/DATA/INDEX_IT.IDX     --dat E:/DATA/DATA_IT.DAT --all out/rooms
 
-# sound banks -> SPU-ADPCM samples as WAV
+# sound banks -> samples as WAV, each at the rate its tones play it
 python tools/ext_sound.py E:/DATA/INDEX_IT.IDX E:/DATA/DATA_IT.DAT --list
+python tools/ext_sound.py E:/DATA/INDEX_IT.IDX E:/DATA/DATA_IT.DAT     --record s04_r0 --wav out/sfx
 
 # movies -> MPEG-2 video + WAV
 python -m ps2kit.pss E:/MOVIE_IT/E001.PSS --video e001.m2v --audio e001.wav
@@ -76,16 +79,22 @@ python -m ps2kit.elf E:/SCES_502.40 --callers 0x001C6CE0
 # VU microcode, from the DMA chain that uploads it
 python -m ps2kit.vu E:/SCES_502.40 --dma 0x00237D00
 
-# overlays
-python -m ps2kit.mwo3 E:/OVERLAY/AREA00.BIN
+# overlays: header, function entries, an ELF with the executable for Ghidra
+python -m ps2kit.mwo3 E:/OVERLAY/AREA00.BIN --seeds --host E:/SCES_502.40
+python -m ps2kit.mwo3 E:/OVERLAY/AREA00.BIN --elf area00.elf --host E:/SCES_502.40
+
+# IOP modules: imports, exports, relocated image
+python -m ps2kit.irx E:/IRX/SNDN2DRV.IRX
 ```
 
 ## Status
 
-Sessions 1–4: disc, index, streamed audio, text, textures, meshes,
-skeletons and animation, actor placement and sound banks are decoded;
-rooms and characters export to glTF. The main executable is mapped in
-Ghidra and recompiles with PS2Recomp. See [docs/00-sessions.md](docs/00-sessions.md)
+Sessions 1–5: disc, index, streamed audio, text, textures, meshes,
+skeletons and animation, actor placement and sound (banks, sequences, real
+sample rates) are decoded; every room exports to glTF with its actors. The
+executable and all 19 overlays are mapped in Ghidra; the executable
+recompiles with PS2Recomp and the result boots as far as its first file
+lookups. See [docs/00-sessions.md](docs/00-sessions.md)
 for the log,
 [docs/06-attack-plan.md](docs/06-attack-plan.md) for the route,
 [docs/07-next-session.md](docs/07-next-session.md) for what is next and

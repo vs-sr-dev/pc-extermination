@@ -1,28 +1,27 @@
-# TODO — session 5
+# TODO — session 6
 
-Session 4 closed the asset side of characters: meshes with their skeletons,
-animation, spawn tables, sound samples. What is left of phase 1 is small;
-phase 3 (recompilation) has started with PS2Recomp building and running.
+Session 5 finished phase 1 for sound and actors (real sample rates, every
+room with its actors), put all 19 overlays in Ghidra, settled the clock
+(1/50 s a tick) and read the VU lighting. PS2Recomp's runtime builds with our
+generated code (see the session log for how far it runs).
 
-1. **Sample rates**: by ear 22 050 Hz sounded most natural of three
-   plausible rates (session 4). Decode the `SShd` maps and sequences so each
-   effect gets its real rate from note and centre note.
-2. **Every room with its actors**: run `ext_spawn.py` over all areas (each
-   area's overlay from the file table at `0x0028CF40`), and resolve the
-   actor classes still exported as empties (humans `0x00128C00`/
-   `0x0012A5C0`, debris `0x001E4720`, `0x001551B0`).
-3. **Overlays in Ghidra**: seed AREA00 with its `jal` targets and the entry
-   points the executable calls (`0x001E8110`), then import the other 18
-   the same way and name their functions.
-4. **Animation clock**: find the main loop's vsync wait; is a tick 1/50 s?
-5. **PS2Recomp, phase 3 proper**: build `ps2_runtime`, link the generated
-   code, and see how far the main executable gets with stubs. Decide how
-   overlays are compiled (one unit each, function tables swapped on load)
-   and how VU1 is handled (interpret the 22 microprograms, or draw the mesh
-   format natively).
-6. **The other room microprogram** (`0x002382A0`) and the lighting in the
-   skinning one (`0x00236020`), now that `ps2kit.vu` reads them.
+1. **Runtime, phase 3 proper**: follow the runner's first failures; give the
+   overlays a home. Every overlay is a separate unit at the same address:
+   recompile each from its `ps2kit.mwo3 --elf` wrapper (text range only) and
+   register its functions when the area loader reads the file (the loader is
+   `0x00200710`; a hook on its "file read" step can swap the table).
+2. **Sound in the port**: replace `SndVoiceCmd` (`0x001157F0`) with a native
+   48-voice SPU mixer (ADPCM, pitch, ADSR, volume, pan) and let the
+   recompiled sequencer drive it. Needs the command numbers: read
+   `0x001157F0`'s queue and the driver side.
+3. **Rendering plan**: the draw paths that upload each of the 22 VU1
+   programs, and the per-actor light and colour matrices; then decide native
+   drawing of the mesh format (lighting formula known) versus the runtime's
+   VU interpreter.
+4. **The 21 actors still without a model** (overlay classes of areas 01, 03,
+   13, 21) and the six samples in the two program-less sub-banks.
+5. **Sections 0–2, 29, 30, 50–57**: roles still guesses.
 
-Captures that would still help (PCSX2): a GS dump of the first room, and a
-savestate in area 00 to compare the slot table at `0x0028D010` and the actor
-list.
+Captures that would still help (PCSX2): a savestate in area 00 to compare
+the slot table at `0x0028D010`, the actor list, and the larva's texture in
+the room (grey in our export, dark red alone).

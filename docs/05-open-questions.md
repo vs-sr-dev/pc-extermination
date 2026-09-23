@@ -13,16 +13,24 @@ Resolved questions move to the bottom with the session that settled them.
    Close-ups and cutscenes are the guess; the 7 workspace qwords suggest a
    different microprogram.
 1b. **Spawn records**: the meaning of +0x03, +0x2E, +0x0E, +0x54 and +0x56
-   per actor class, and the classes whose model is not in slot 0x35 or 0x43
-   (the humans of `0x00128C00`, the debris of `0x001E4720`).
+   per actor class. The models are resolved for all but 21 of 804 actors
+   (session 5); those 21 belong to overlay classes not read yet (area 01's
+   `0x00826850`, `0x008298C0`, `0x0082B3D0`, area 03's `0x00826390`, area
+   13's `0x0082C560`, area 21's `0x0082AED0`). What do the flesh patch, egg pod and
+   spiked growth of s03 slots 0x1A, 0x20 and 0x24 do in play, and the two globals that switch creature variants
+   (`0x00813388`) and larva textures (`0x00813308`)?
+1e. **The larva in a room** renders grey where the model alone renders dark
+   red: its texture depends on what the room's pack leaves in GS memory, or
+   on the 0x0D/0x0E choice. Compare in PCSX2.
 1c. **Room geometry flag 0x2000** in w: not tested by the room microprogram
    (`0x00237D00`). Perhaps read by the CPU (collision?) or by the other room
    program (`0x002382A0`).
-1d. **Animation clock**: one frame per tick, but is a tick 1/50 s or 1/25 s?
-   The main loop's vsync wait will say.
-2. **Sound banks**: the layout and the samples are out; the `SShd` maps and
-   sequences are not, and without them the sample rates. Then the
-   `sndn2_driver` RPC protocol (`0x001FBD00`).
+2. **Sound**: banks, programs, tones and effect sequences are decoded and the
+   rates confirmed by ear. Open: the six samples in the two sub-banks with no
+   programs (`s07_r1` b3, `s21` b2); where the `"SSsq"` sequences played by
+   `0x00119650` live (music is streamed: jingles?); the effect IDs the game
+   passes to `0x001FC584`; the voice command protocol to the IOP
+   (`0x001157F0`, command numbers 1, 3, 5, 6, 0x0A–0x0D, 0x28, 0x33).
 3. **Text style 3**: italic, or another effect? Byte +5 of the text state
    at `0x00265854` — see what the glyph drawer does with it.
 4. **Sections 0–2, 29, 30, 50–57**: roles still guesses. 29 is a mesh
@@ -37,14 +45,12 @@ Resolved questions move to the bottom with the session that settled them.
 
 ## Code
 
-7. The VU1 microprograms: all 22 disassemble (`ps2kit.vu`); the lighting in
-   the skinning program (`0x00236020`) and the other room program
-   (`0x002382A0`) are still to read.
-8. The `sndn2_driver` RPC protocol.
-9. **Overlays in Ghidra**: AREA00 re-imported at the right base
-   (`0x008260C0`), but a raw import finds only 28 functions; seed it with
-   the `jal` targets and the entry points the executable calls
-   (`0x001E8110`), then import the other 18.
+7. The VU1 microprograms: which of the 22 each draw path uploads; does the
+   room draw code (`0x001D5B60`) choose the clipping program `0x002382A0`
+   for grid cells that cross the frustum? Where are the three lights and
+   their colours set per actor?
+8. The `sndn2_driver` RPC protocol (it imports libsd and plays what the EE
+   sequencer sends).
 
 ## Tools
 
@@ -56,6 +62,21 @@ Resolved questions move to the bottom with the session that settled them.
     microprograms, or render the mesh format natively and never run them?
 
 ## Resolved
+
+* **Sample rates** (session 5): the EE sequencer plays each tone at 44 100 ·
+  2^((key − centre)/12 + fine/192) Hz; most samples are 8, 16 or 32 kHz.
+  Confirmed by ear. The session 4 bank reader started the samples 0x50 bytes
+  late (the bd offset is the header's +0x18).
+* **Animation clock** (session 5): one tick a main-loop pass, 1/50 s, with no
+  frame skip.
+* **Overlays in Ghidra** (session 5): all 19 imported as synthetic ELFs with
+  the executable (`ps2kit.mwo3 --elf`), seeded with `ps2kit.mwo3.seeds()`,
+  analysed in about 20 s each.
+* **VU1 lighting and clipping** (session 5): the skinning program lights
+  vertices with three directional lights and an ambient term (libvu0's light
+  and colour matrices, per bone); `0x002382A0` is a triangle clipper.
+* **The "humans"** of `0x00128C00`/`0x0012A5C0` (session 5): larvae, the
+  basic enemy; the "debris" of `0x001E4720` is a sprite emitter.
 
 * **How textures are read back** (session 2): every mesh vertex carries its
   TEX0. With the resident set, the area pack and the room pack in GS memory,
