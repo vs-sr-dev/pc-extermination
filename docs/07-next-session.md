@@ -1,30 +1,25 @@
-# TODO — session 3
+# TODO — session 4
 
-Phase 1 continues with the **models**, and phase 2 with the code that draws
-them. Textures are done (session 2): `tools/ext_tex.py` gives every room
-texture as PNG, keyed by TEX0.
+Rooms, props and textures extract (`ext_tex.py`, `ext_mesh.py`). What is
+missing for a full asset picture is characters, animation and sound; on the
+code side, the actors and the microcode.
 
-1. **Mesh format** (slots `0x43`, `0x44`, `0x72`… of the rooms). Known: the
-   resource header `u32 n, u32 qwc, u32 k, u32 bytes = qwc·16 + 0x40`, then
-   64-byte vertices `TEX0 | s t q 0 | 4 floats | x y z w`. To find: the
-   header fields, the second float quadword (normal? colour?), the flag bits
-   in w's mantissa (strip restart / ADC?), how vertices group into
-   primitives. Goal: export one room to glTF with its textures and check it
-   in Blender (the Blender MCP is available).
-2. **Who draws it**: in Ghidra, the users of the slot table entries for the
-   mesh slots (`0x0028D010 + slot * 4`, e.g. `0x0028D11C` for 0x43) —
-   use `ps2kit.elf.xref` too, Ghidra may have no references for them. Does the renderer build GIF
-   packets on the EE, or send the vertices to VU1? Look for VIF `MPG`.
-3. **Overlays in Ghidra**: import `AREA00.BIN` (MWo3 body at 0x00826080)
-   into the same project, as a separate program or an overlay block.
-4. **Text command n**: find the reader of the text slot (`0x3F` →
-   `0x0028D10C`) and the interpreter of the `{3, x, n, -1}` commands.
-5. **Name the SDK** in the Ghidra project: start from the functions already
-   identified by behaviour (sceCdSearchFile `0x00111C28`, sceCdRead
-   `0x00112440`, sceDma* `0x00101BB8`/`0x00101F08`/`0x00102468`) and write
-   the names back with a script.
-6. **Sound banks** if time allows: the header before `SShd`.
+1. **Characters**: find the skeleton and the animation. Suspects: the
+   "keyed" family (`u32 n, 0x01xx0000, 0x00040078, floats near ±1`), the
+   section 28 meshes, slot 0x71 in rooms (57 offsets). Find how batches bind
+   to bones: the character draw code (users of `TableEntry` on the
+   character slots) will say. Goal: one squad member assembled in Blender.
+2. **Spawn tables**: decode the record fields from the code that walks them
+   (start from the behaviour functions `0x00128C00`, `0x0012A5C0`,
+   `0x0015B040` and the overlay entry points); then place room 00's props in
+   the glTF export.
+3. **Sound banks** (the pack before `SShd`): decode to WAV sets, listen.
+4. **VU disassembler** in `ps2kit` for the ~20 microprograms: settles the
+   w flags (0x2000, 0x4000) and the lighting, and will be needed to judge
+   PS2Recomp's VU story.
+5. **More names** in `tools/ghidra/names_SCES_502.40.tsv`; import the other
+   overlays.
+6. Start phase 3: build **PS2Recomp** and run its analyzer on SCES_502.40.
 
-Captures that would still help (PCSX2): a GS dump of the first room, to
-compare against `ext_tex.py`, and a savestate in area 00 to check the slot
-table at `0x0028D010` against the index.
+Captures that would still help (PCSX2): a GS dump of the first room, and a
+savestate in area 00 to compare the slot table at `0x0028D010`.

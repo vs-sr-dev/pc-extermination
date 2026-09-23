@@ -1,0 +1,48 @@
+# Function names for SCES_502.40 (Extermination, PAL), identified by behaviour.
+# address	name	comment
+# --- SDK (libcdvd, libdma, libvu0, libc), by what they do and how they are called
+0x00111c28	sceCdSearchFile	fills a sceCdlFILE from a path; used for INDEX/DATA/overlays/movies
+0x00112440	sceCdRead	lsn, sectors, buffer, mode
+0x00112d18	sceCdSync	0 blocks, 1 polls
+0x00113280	sceCdDiskReady	returns 6 (not ready) on failure
+0x00113680	sceCdGetError
+0x00101bb8	sceDmaGetChan
+0x00101f08	sceDmaSend
+0x00102468	sceDmaSync
+0x001029c0	sceVu0UnitMatrix
+0x00102c58	sceVu0RotMatrix
+0x00102918	sceVu0TransMatrix
+0x00102948	sceVu0CopyVector
+0x001026d0	sceVu0MulMatrix
+0x00121a28	memset
+0x001232e0	strlen
+0x00122bb8	rand
+0x00122b58	printf	debug output, gated by a verbosity global
+# --- game: files and loading
+0x001ff880	InitFileTables	INDEX/DATA per language at 0x28D000, 23 overlays at 0x28CF40
+0x001ff7d0	InitIndexFiles
+0x001fb070	InitStreamFiles	MUSIC.DAT and VOICE.DAT
+0x00203d10	InitMovieFiles	9 PSS per language
+0x002011c0	ReadFileAsync	file entry, dest, byte offset, size (-1: whole file)
+0x00201170	ReadPoll	0 busy, 1 done, 2 error
+0x00201140	ReadWait
+0x00201270	SendVif1Packet	sceDmaSend on channel 1, synced before and after
+0x00201430	OverlayFlush	FlushCache, clear bss
+0x001ffc10	BootLoadSection	loads a section's packs and resources, fills the slot table
+0x00200260	LoadSection	generic loader; memory zone by section number
+0x00200710	AreaLoader	state machine: overlay, index section area+4, area record, room record
+0x00200da0	RoomLoader	state machine: next room of the current area
+0x001ffe20	LoadRecordPacks
+0x001fffc0	LoadPacksToSlot	packs of a record into the buffer at slot table[param]
+0x002012d0	KickCharacterPage	sends one of section 3 slots 6-10 (character face page)
+0x001fbd00	SoundBankUpload
+0x001c6910	TableEntry	resource table lookup: base + offsets[index]
+# --- game: drawing
+0x001d5ad0	RoomGridInit	reads entry 0 of slot 0x44 (32x32 grid)
+0x001d5b60	RoomDraw	walks the grid, culls object boxes with VU0 vclip
+0x001f6630	FlickerLightList	per (area, room) placement table or NULL
+0x001f6ba0	FlickerLightsDraw
+# --- game: text
+0x001fe2e0	ShowMessage	text from slot 0x3F (or 0x28D060 when bit 31)
+0x001fe9e0	DrawTextLine	applies style commands at character positions
+0x001fedf0	TextString	address of line n

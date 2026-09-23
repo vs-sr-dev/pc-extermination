@@ -97,3 +97,40 @@ every record; `ext_index.py` now does the same.
 Ghidra's analysis created no references to the file tables at 0x0028CF40
 and 0x0028D000, although the code addresses them with plain `lui` pairs;
 `ps2kit.elf.xref` found them. The two tools go together.
+
+## Session 3 — meshes, rooms in Blender, text styles
+
+Held in the same sitting as session 2. Goal: the model format and the code
+that draws it.
+
+Results:
+
+* **Meshes decoded** (`tools/ext_mesh.py`, `ps2kit.vif`): every mesh is a
+  stored VIF1 packet for **VU1 microcode** — `STCYCL 4,4`, `UNPACK V4-32` of
+  32 vertices, `MSCAL 0`/`MSCNT`. A vertex is TEX0, s/t/q, normal or
+  pre-lit colour, x/y/z/w with strip flags in w's mantissa (4 quadwords;
+  11 for characters, 7 of them workspace). 26 999 objects and 917 000
+  triangles parse on the whole disc; the winding rule matches the normals
+  on 99.4–99.8% of triangles.
+* **Room 00 in Blender**: glTF export with the GS-memory textures, alpha
+  masks and vertex colours; the room reads right from inside (walls,
+  railings, stairs, lights). The room geometry has a 32 × 32 culling grid
+  in its first entry, walked by the draw code with VU0 `vclip`.
+* **Props and characters**: props are actors placed by **spawn tables at the
+  head of each overlay's data** (position, rotation, behaviour function);
+  flickering lights have their own hard-coded lists. Section 3 holds the
+  squad's four **heads**, and its five texture pages (slots 6–10) are the
+  faces in the combinations a scene needs. Bodies need the skeleton: next.
+* About twenty VU1 microprograms located in the executable.
+* **Text commands solved**: style runs `{type, value, character position,
+  extra}` applied by the text renderer. Type 3 (italic, probably) covers
+  whole radio lines and single emphasised words. Session 2's n is the
+  run's end position; the "voice clip" idea was wrong. German loses two
+  emphases to a bug.
+* **Ghidra**: `AREA00.BIN` imported; 42 functions named from
+  `tools/ghidra/names_SCES_502.40.tsv` by `ApplyNames.java` (libcdvd,
+  libdma, libvu0, libc, the loaders, the room and text drawers).
+
+The first try at characters gave piles of fragments: the stride was 4
+quadwords where characters use 11. With 11 the heads came out whole; with
+the wrong face page, psychedelic.

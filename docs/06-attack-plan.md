@@ -65,16 +65,18 @@ draws a wrong model, we will know what it should have drawn.
    before the strings decoded in session 2, except the meaning of one
    command argument.
 4. **Sound banks** decoded to WAV sets.
-5. **Models**: decode the "model" family, export to glTF, check in Blender.
+5. **Models**: mesh format decoded and rooms exported to glTF in session 3
+   (`tools/ext_mesh.py`); characters need their skeleton and animation.
 6. Section map filled in: what sections 0–3, 27–57 hold.
 
 ### Phase 2 — map the executable (started in session 2)
 
 1. Ghidra with ghidra-emotionengine-reloaded (capstone mis-decodes EE-only
    opcodes, see below); import the main ELF and each overlay at 0x00826080.
-   Main ELF imported and analysed in session 2 (2 686 functions); overlays
-   still to do.
-2. Name the SDK: signature-match the 2000-era libraries.
+   Main ELF imported and analysed in session 2 (2 686 functions); AREA00
+   imported in session 3, the other overlays still to do.
+2. Name the SDK: signature-match the 2000-era libraries. Started by hand in
+   session 3 (`tools/ghidra/names_SCES_502.40.tsv`, 42 functions).
 3. Find the main loop, ~~the area loader~~ (session 2: `0x00200710`), the
    stream code, the RPC client for `sndn2_driver`.
 4. Dynamic analysis in PCSX2: breakpoints on the loaders, GS dumps of a
