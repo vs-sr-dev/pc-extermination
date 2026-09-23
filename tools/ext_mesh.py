@@ -33,8 +33,9 @@ A vertex, as unpacked into VU memory:
     qw2  f32 normal x, y, z, 0
     qw3  f32 x, y, z, w; w is +-1 with flags in the low mantissa bits:
          0x8000 no triangle ends here (strip start, like the GS ADC bit),
-         the sign (with 0x4000) gives the triangle's winding; bits 3-12
-         hold bone * 8. Positions and normals are local to that bone.
+         the sign (with 0x4000) gives the triangle's winding; bits 3-9
+         hold bone * 8, the VU1 address of the bone's matrices. Positions
+         and normals are local to that bone.
 
 Vertices form triangle strips; every vertex without the 0x8000 flag closes a
 triangle with the two before it. Batches pad with repeats of the last vertex.
@@ -319,8 +320,11 @@ class Gltf:
 
 
 def bone_of(wbits):
-    """The bone a vertex belongs to: w's low mantissa bits hold bone * 8."""
-    return (wbits & 0x1FFF) >> 3
+    """The bone a vertex belongs to. The skinning microprogram loads w's low
+    16 bits with ilw and uses them as the VU1 address of the bone's matrices
+    (8 qwords a bone); VU1 data memory wraps at 1024 qwords, so the flag bits
+    above do not disturb the address."""
+    return (wbits & 0x3FF) >> 3
 
 
 def export_gltf(path, meshes, mem, split=False):
