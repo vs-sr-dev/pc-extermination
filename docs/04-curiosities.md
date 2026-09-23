@@ -1,0 +1,59 @@
+# Curiosities
+
+Things the disc reveals that have nothing to do with making it run.
+
+### 1. A year-old teaser rides along, unreferenced
+
+`EXTER1.DAT` (43 MB) sits in the disc root with a timestamp of 19 May 2000,
+eleven months before every other file (April 2001). Nothing in the
+executable names it. It is a silent MPEG-2 program stream, 640×480 at
+**29.97 fps** — NTSC timing on a PAL disc — letterboxed, 93 seconds long.
+The content is pre-release: CG shots of the squad, plus in-engine footage
+with a high top-down camera following two soldiers through a door and a
+red-lit corridor. Most likely an old promo clip used as filler when the DVD
+was mastered.
+
+### 2. Four areas were cut, and their numbers kept
+
+Index sections map to areas as section = area + 4. Sections 9, 13, 14 and 16
+are present but empty (size zero), and exactly those four areas — 05, 09, 10
+and 12 — also have no `OVERLAY\AREAnn.BIN`. The numbering was frozen before
+they were dropped. Overlay numbers inside the MWo3 headers are contiguous
+(1–19), so the overlays were relinked after the cut, but the file and
+section numbers were not.
+
+### 3. Two areas with almost no code
+
+`AREA18.BIN` and `AREA22.BIN` hold 0xC0 bytes of code each, against 7–28 KB
+for the others. Either they are pure transition or cutscene areas driven
+entirely by data, or placeholders.
+
+### 4. Subtitles burned into the video
+
+Four movies exist in five versions whose soundtracks are bit-identical: only
+the picture differs. In E39S2 the Italian copy differs from the English one
+in 41 frames, all in one band near the bottom — a subtitle ("Ma cosa hai
+fatto!?") rendered into the video; the English copy has none. The other five
+movies have no dialogue and are byte-identical in all five folders.
+
+### 5. The voice studio's monitor is on tape
+
+The voice clips carry a faint, steady tone at about 15.6 kHz: the line
+frequency of a 625-line CRT (15 625 Hz), most likely a monitor in the
+recording booth. Handy, too — it sits at the right frequency only when the
+clips are played at 48 kHz, which confirmed the rate.
+
+### 6. Three and a half hours of music, in mono
+
+`MUSIC.DAT` holds 66 tracks, 206.9 minutes in all, every one mono. The
+longest (track 62) runs over 13 minutes.
+
+### 7. "BR" is British
+
+The English files use the suffix `BR` (British), not `EN` or `UK`.
+
+### 8. Save names
+
+The executable names the memory card directory
+`BESCES-50240-DS00-00` with files `EX_DATA.00`–`EX_DATA.04`. `DS` is
+plausibly Deep Space, the developer.
