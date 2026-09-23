@@ -83,23 +83,33 @@ enough to sort nearly every resource into one of these:
 
 ## Streamed audio
 
-**Verified.** `STREAM\MUSIC.DAT` and `STREAM\VOICE.DAT` are headerless mono
-SPU-ADPCM at 48 kHz. Every frame has flag byte 0x02, so the data carries no
-track bounds. The bounds are two tables in the executable (PAL addresses):
+**Verified.** `STREAM\MUSIC.DAT` and `STREAM\VOICE.DAT` are headerless
+SPU-ADPCM at 48 kHz: music **stereo, interleave 0x400** (every sector is
+0x400 bytes of L then 0x400 of R), voice **mono**. Every frame has flag byte
+0x02, so the data carries no track bounds. The bounds are two tables in the
+executable (PAL addresses):
 
 | Table | VA | Entries |
 |---|---|---|
-| music | `0x0025E8B0` | 66 tracks, 206.9 min, 21 with the loop flag |
+| music | `0x0025E8B0` | 66 tracks, 103.4 min, 21 with the loop flag |
 | voice | `0x0025ECE0` | 178 clips, 18.5 min |
 
 16 bytes a track: `u32 start sector, u32 start byte, u32 size, u32 loop`.
 Entry 0 is empty; both tables tile their file exactly. The stream code
-(`0x001FB120`) turns a music size into time at `0.0746667 s` per sector:
-3584 samples in that time is 48 000 samples/s, so mono 48 kHz or stereo
-24 kHz. Stereo is ruled out by the decoded data, which stays continuous across
-every candidate interleave boundary, and 48 kHz is confirmed by the voice
-clips, whose 15.6 kHz line-scan whistle only lands there at that rate. (The
-voice path divides the same product by 2; what that timing is for is open.)
+(`0x001FB120`) turns a size into time at `0.0746667 s` per sector for voice
+(`0x001FB1D0`) and half that for music (`0x001FB27C`, divided by 2.0). A
+sector holds 3584 ADPCM samples, so voice runs 48 000 mono samples/s and
+music 1792 per channel in half the time: stereo at 48 kHz.
+
+The data agrees. The two 0x400 halves of a music sector differ in level and
+ADPCM statistics, and decoded as L/R they pair up in time: L correlates with
+the R block beside it far more than with the R block before it (score 0.34–0.70
+on every track sampled, ~0 for voice; `ps2kit.adpcm.guess_layout`). Decoded
+as mono, music plays at the right pitch but half speed, stuttering at the
+13.4 Hz block rate. Voice has no such structure, and its 15.6 kHz line-scan
+whistle lands there only at 48 kHz.
+
+Session 1 first read the music as mono: the listening test caught it.
 Tool: `tools/ext_stream.py`.
 
 ## PSS movies

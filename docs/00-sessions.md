@@ -16,8 +16,9 @@ Results:
   `tools/ext_index.py` lists, verifies and extracts.
 * **Streamed audio solved**: no headers and no end flags in the data; the
   track tables are in the executable, found by following the
-  `sceCdSearchFile` of `MUSIC.DAT`. 66 music tracks (206.9 min) and 178 voice
-  clips (18.5 min), mono 48 kHz. `tools/ext_stream.py` extracts them to WAV.
+  `sceCdSearchFile` of `MUSIC.DAT`. 66 music tracks (103.4 min, stereo
+  48 kHz, interleave 0x400) and 178 voice clips (18.5 min, mono 48 kHz).
+  `tools/ext_stream.py` extracts them to WAV.
 * **Movies**: PSS with PCM audio, demuxed exactly by `ps2kit.pss`. Four
   movies are per-language with identical audio; the Italian E39S2 differs from
   the English one only by a burned-in subtitle.
@@ -29,10 +30,16 @@ Results:
   (`06-attack-plan.md`).
 * **ps2kit started** (`10-ps2kit.md`): `elf`, `adpcm`, `pss`, `mwo3`,
   `fingerprint` — the first pieces of the game-agnostic toolkit.
-* Eight curiosities (`04-curiosities.md`), among them an unreferenced
+* Seven curiosities (`04-curiosities.md`), among them an unreferenced
   pre-release teaser from May 2000 and four cut areas.
 
-One correction on the way: the index flag bits were first read as
-"pack A / pack B" by position; tallying the pack contents over all records
-showed bit 0 is the sound bank and bit 16 the GS pack, with the pairs always
-in that order.
+Two corrections on the way. The music was first decoded as mono: right
+pitch, but a "woodpecker" stutter that the user heard at once. The stream
+code had been misread too (the halving belongs to the music path, not the
+voice path), and a better test — L/R pairing in time rather than plain L/R
+correlation — found the 0x400 interleave on every track. That test is now
+`ps2kit.adpcm.guess_layout`, run by the fingerprint on any raw ADPCM file.
+
+And the index flag bits were first read as "pack A / pack B" by position;
+tallying the pack contents over all records showed bit 0 is the sound bank
+and bit 16 the GS pack, with the pairs always in that order.

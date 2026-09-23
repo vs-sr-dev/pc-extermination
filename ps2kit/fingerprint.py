@@ -20,6 +20,8 @@ import os
 import re
 import struct
 
+from . import adpcm
+
 SECTOR = 2048
 
 # magic -> label; checked at offset 0 (and at sector starts with --deep)
@@ -133,6 +135,12 @@ def classify(path, deep=False):
         notes.append("flag bytes %s" % dict(flags))
         if set(flags) <= {2}:
             notes.append("no end/loop-start flags: track bounds must live in code")
+        with open(path, "rb") as f:
+            f.seek(min(size // 2, 0x100000) & ~(SECTOR - 1))
+            il, scores = adpcm.guess_layout(f.read(0x40000))
+        notes.append("layout: %s (L/R pairing score %.2f)" % (
+            "stereo, interleave %#x" % il if il else "mono",
+            scores.get(il, max(scores.values(), default=0.0))))
     if kind is None:
         kind = "unknown (entropy %.2f)" % entropy(head)
         if deep and size > 16 * SECTOR:

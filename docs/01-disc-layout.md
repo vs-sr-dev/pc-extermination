@@ -10,7 +10,7 @@ SCES_502.40         1.5 MB   main executable (CodeWarrior, overlays)
 OVERLAY\AREA*.BIN   19 x 2-50 KB   per-area code overlays (MWo3)
 DATA\INDEX_xx.IDX   5 x 116 KB     index, one per language
 DATA\DATA_xx.DAT    5 x 235 MB     all game data, one per language
-STREAM\MUSIC.DAT    325 MB   66 music tracks, raw SPU ADPCM, mono 48 kHz
+STREAM\MUSIC.DAT    325 MB   66 music tracks, raw SPU ADPCM, stereo 48 kHz
 STREAM\VOICE.DAT    29 MB    178 voice clips, raw SPU ADPCM, mono 48 kHz
 MOVIE_xx\*.PSS      5 x 9 movies, MPEG-2 640x480 25 fps + PCM 48 kHz stereo
 IRX\*.IRX, IOPRP20.IMG   IOP modules and the IOP replacement image

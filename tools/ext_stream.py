@@ -17,10 +17,16 @@ read by the stream code at 0x1FB120 after it has stored each file's LSN
     +0C u32 loop flag    (music only; 1 = loops)
 
 Entry 0 is empty. Both tables tile their file exactly. The stream code
-converts a music size to time at 0.0746667 s per sector, 48 000 samples/s.
-The decoded data shows no interleave boundaries, so that is mono 48 kHz, and
-the voice clips keep a faint 15.6 kHz line-scan whistle that only lands there
-at 48 kHz.
+converts a size to time at 0.0746667 s per sector for voice and half that
+for music:
+
+    voice  3584 samples a sector  -> mono, 48 kHz
+    music  1792 samples a sector  -> stereo, 48 kHz, interleave 0x400
+                                     (each sector is 0x400 of L, 0x400 of R)
+
+The two halves of a music sector differ in level and ADPCM statistics, and
+decode to a correlated L/R pair, which confirms the layout. The voice clips
+keep a faint 15.6 kHz line-scan whistle that only lands there at 48 kHz.
 """
 import argparse
 import os
@@ -35,6 +41,8 @@ SECTOR = 2048
 RATE = 48000
 # PAL SCES-50240
 TABLES = {"music": 0x25E8B0, "voice": 0x25ECE0}
+CHANNELS = {"music": 2, "voice": 1}
+INTERLEAVE = 0x400
 
 
 def read_table(elf, va):
@@ -68,12 +76,15 @@ def main():
     for kind in kinds:
         tracks = read_table(elf, TABLES[kind])
         total = sum(t["size"] for t in tracks)
+        ch = CHANNELS[kind]
+        seconds = lambda size: size / 16 * 28 / ch / RATE     # noqa: E731
         if a.list:
-            print("%s: %d tracks, %d bytes, %.1f min" % (
-                kind, len(tracks), total, total / 16 * 28 / RATE / 60))
+            print("%s: %d tracks, %d bytes, %.1f min, %s 48 kHz" % (
+                kind, len(tracks), total, seconds(total) / 60,
+                "stereo" if ch == 2 else "mono"))
             for t in tracks:
                 print("  %3d  sector %6d  %8X bytes  %6.1f s%s" % (
-                    t["n"], t["lsn"], t["size"], t["size"] / 16 * 28 / RATE,
+                    t["n"], t["lsn"], t["size"], seconds(t["size"]),
                     "  loop" if t["loop"] else ""))
         if a.stream:
             size = os.path.getsize(a.stream)
@@ -86,9 +97,10 @@ def main():
                     if a.track is not None and t["n"] != a.track:
                         continue
                     f.seek(t["lsn"] * SECTOR)
-                    pcm = adpcm.decode(f.read(t["size"]))
+                    data = f.read(t["size"])
+                    parts = adpcm.deinterleave(data, ch, INTERLEAVE) if ch > 1 else [data]
                     out = os.path.join(a.extract, "%s_%02d.wav" % (kind, t["n"]))
-                    adpcm.write_wav(out, [pcm], RATE)
+                    adpcm.write_wav(out, [adpcm.decode(p) for p in parts], RATE)
                     print(out)
 
 

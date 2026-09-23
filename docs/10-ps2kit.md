@@ -15,7 +15,7 @@ needed it, then kept free of Extermination-specific knowledge.
 
 | Layer | Question it answers | Now | Next |
 |---|---|---|---|
-| 1. Recognise | What is on this disc? Which parts are standard? | `fingerprint`: magics, SPU ADPCM heuristic, GS packets, toolchain from `.comment`, SDK library versions, IRX names and versions, overlay regions, file paths named by the code | a knowledge base: each finding linked to the extractor or runtime module that handles it |
+| 1. Recognise | What is on this disc? Which parts are standard? | `fingerprint`: magics, SPU ADPCM heuristic with mono/stereo interleave detection, GS packets, toolchain from `.comment`, SDK library versions, IRX names and versions, overlay regions, file paths named by the code | a knowledge base: each finding linked to the extractor or runtime module that handles it |
 | 2. Extract | Turn standard formats into standard files | `adpcm`, `pss`, `mwo3` | GS memory model + textures, TIM2, VAG/VAB, SShd banks, IOPRP romdir; memory cards via `ps2mc.py` from pc-rpgmaker3 |
 | 3. Map code | What does the code do, where? | `elf`: segments, reads, lui/addiu xrefs, instruction mix | SDK signature matching per library version, overlay-aware loader, Ghidra project generator |
 | 4. Translate | Turn EE code into C/C++ | — | recompiler configs generated from layer 3 (for PS2Recomp or our own) |

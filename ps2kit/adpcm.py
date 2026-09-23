@@ -1,7 +1,7 @@
 """SPU ADPCM ("PS-ADPCM", "VAG") decoding.
 
     python -m ps2kit.adpcm in.bin out.wav --rate 48000 [--offset N --size N]
-    python -m ps2kit.adpcm in.bin out.wav --channels 2 --interleave 0x800
+    python -m ps2kit.adpcm in.bin out.wav --channels 2 --interleave 0x400
 
 Each 16-byte frame holds 28 samples: byte 0 is (filter << 4) | shift, byte 1
 the loop flags (1 end, 2 loop, 4 loop start), then 14 bytes of nibbles, low
@@ -55,6 +55,44 @@ def deinterleave(buf, channels, interleave):
     return [bytes(p) for p in parts]
 
 
+def _corr(a, b):
+    n = min(len(a), len(b))
+    if n < 2:
+        return 0.0
+    ma, mb = sum(a[:n]) / n, sum(b[:n]) / n
+    sab = saa = sbb = 0.0
+    for x, y in zip(a[:n], b[:n]):
+        x -= ma
+        y -= mb
+        sab += x * y
+        saa += x * x
+        sbb += y * y
+    return sab / (saa * sbb) ** 0.5 if saa and sbb else 0.0
+
+
+def guess_layout(buf, candidates=(0x100, 0x200, 0x400, 0x800, 0x1000, 0x2000, 0x4000)):
+    """Guess whether a headerless stream is interleaved stereo, and how.
+
+    Split at each candidate interleave into L and R, decode both, and compare
+    the correlation of L with R at the same time against L with the R block
+    before it. True stereo pairs same-time blocks, so the first is clearly
+    higher; for mono, or a wrong interleave, the two are about equal.
+    Plain L/R correlation is not enough: real stereo can be weakly correlated.
+
+    Returns (interleave or None, {interleave: score}). Feed 128-512 KB.
+    """
+    scores = {}
+    for il in candidates:
+        left, right = deinterleave(buf, 2, il)
+        if len(left) < 4 * il:
+            continue
+        l, r = decode(left), decode(right)
+        block = il // 16 * 28
+        scores[il] = _corr(l, r) - _corr(l[block:], r[:-block])
+    best = max(scores, key=scores.get) if scores else None
+    return (best if best is not None and scores[best] > 0.15 else None), scores
+
+
 def write_wav(path, chans, rate):
     """chans: list of array('h'), one per channel."""
     n = min(len(c) for c in chans)
@@ -78,7 +116,7 @@ def main():
     ap.add_argument("wav")
     ap.add_argument("--rate", type=int, default=48000)
     ap.add_argument("--channels", type=int, default=1)
-    ap.add_argument("--interleave", type=lambda x: int(x, 0), default=0x800)
+    ap.add_argument("--interleave", type=lambda x: int(x, 0), default=0x400)
     ap.add_argument("--offset", type=lambda x: int(x, 0), default=0)
     ap.add_argument("--size", type=lambda x: int(x, 0), default=-1)
     a = ap.parse_args()

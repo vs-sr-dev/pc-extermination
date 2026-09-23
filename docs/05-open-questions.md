@@ -22,10 +22,8 @@
 8. Whether models go through VU1 microcode, and how many microprograms there
    are (look for VIF `MPG` in the data and in the executable).
 9. The `sndn2_driver` RPC protocol.
-10. What the voice timing computed at `0x001FB280` is for: it halves the
-    duration that the same formula gives for music.
 
 ## Tools
 
-11. Does PS2Recomp handle CodeWarrior output and MWo3 overlays? Evaluate
+10. Does PS2Recomp handle CodeWarrior output and MWo3 overlays? Evaluate
     before building anything of our own.

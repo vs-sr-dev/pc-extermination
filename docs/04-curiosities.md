@@ -43,16 +43,11 @@ frequency of a 625-line CRT (15 625 Hz), most likely a monitor in the
 recording booth. Handy, too — it sits at the right frequency only when the
 clips are played at 48 kHz, which confirmed the rate.
 
-### 6. Three and a half hours of music, in mono
-
-`MUSIC.DAT` holds 66 tracks, 206.9 minutes in all, every one mono. The
-longest (track 62) runs over 13 minutes.
-
-### 7. "BR" is British
+### 6. "BR" is British
 
 The English files use the suffix `BR` (British), not `EN` or `UK`.
 
-### 8. Save names
+### 7. Save names
 
 The executable names the memory card directory
 `BESCES-50240-DS00-00` with files `EX_DATA.00`–`EX_DATA.04`. `DS` is
