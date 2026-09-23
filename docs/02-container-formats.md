@@ -164,7 +164,10 @@ of track), then 16-byte tones: centre note, fine tune, u16 sample offset / 8
 in the bd, ADSR, volume, pan. Samples are plain SPU-ADPCM, each ended by the
 end flag: 91 in room 00. **The sample rate is not stored**: the SPU plays a
 tone at 48 kHz · 2^((note − centre)/12), and the notes come from the
-sequences, not decoded yet.
+sequences, not decoded yet. By ear (session 4, room 00, the same samples at 22 050,
+32 000 and 48 000 Hz) all three were plausible and 22 050 Hz the most
+natural; `ext_sound.py` uses it by default until the sequences give the
+real rate of each effect.
 
 ## Text
 

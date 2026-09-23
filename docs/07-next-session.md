@@ -4,9 +4,9 @@ Session 4 closed the asset side of characters: meshes with their skeletons,
 animation, spawn tables, sound samples. What is left of phase 1 is small;
 phase 3 (recompilation) has started with PS2Recomp building and running.
 
-1. **Listen** to `build/audio/listen/sfx_s04r0_{22050,32000,48000}.wav`
-   (the same 12 samples at three rates) and pick the rate by ear; then decode
-   the `SShd` maps and sequences so each effect gets its own rate.
+1. **Sample rates**: by ear 22 050 Hz sounded most natural of three
+   plausible rates (session 4). Decode the `SShd` maps and sequences so each
+   effect gets its real rate from note and centre note.
 2. **Every room with its actors**: run `ext_spawn.py` over all areas (each
    area's overlay from the file table at `0x0028CF40`), and resolve the
    actor classes still exported as empties (humans `0x00128C00`/
