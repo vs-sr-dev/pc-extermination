@@ -5,12 +5,14 @@
 1. **Resource formats.** Five families recognised by header (model, offset
    table, keyed, path, GS — see 02-container-formats.md), none decoded. The
    slot number probably says the role; a slot → role table is the goal.
-2. **How textures are read back.** GS packs upload through PSMCT32; the real
-   PSM, CLUT and TEX0 settings must be somewhere else, most likely in the
-   model packets.
+2. **How textures are read back.** Every GS upload is a 256-wide PSMCT32
+   page. The title page reads as PSMT8; room pages look like PSMT4. The TEX0
+   settings (base, PSM, CLUT) must be in the model or material resources.
 3. **Sound bank format** — the header before `SShd`, and how programs map to
    samples. Driven by `sndn2_driver`.
-4. **Text table** — the 16-byte records before the strings in slot `0x3F`.
+4. **Text tables** — the strings are solved; the per-line records and the
+   `{3, 0, n, -1}` commands before them are not. Test: are the n voice clip
+   numbers, matching line order and clip length?
 5. **Sections 0–3 and 27–57**: roles are guesses. Sections 31–49 (one GS
    pack per area) could be maps or loading screens.
 6. **Is section = area + 4 right?** It fits the four cut areas exactly; to

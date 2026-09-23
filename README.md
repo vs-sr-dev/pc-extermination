@@ -41,6 +41,13 @@ python tools/ext_stream.py E:/SCES_502.40 --list
 python tools/ext_stream.py E:/SCES_502.40 --kind music \
     --stream E:/STREAM/MUSIC.DAT --extract out/music/
 
+# all text, per language (UTF-8 out)
+python tools/ext_text.py E:/DATA/INDEX_IT.IDX E:/DATA/DATA_IT.DAT > text_it.txt
+
+# GS texture pages: list transfers, read one back as PSMT8 with a CLUT
+python -m ps2kit.gs out/s02/slot05.bin --list
+python -m ps2kit.gs out/s02/slot05.bin --t8 0 --clut 16,352 --png logo.png
+
 # movies -> MPEG-2 video + WAV
 python -m ps2kit.pss E:/MOVIE_IT/E001.PSS --video e001.m2v --audio e001.wav
 
@@ -54,8 +61,9 @@ python -m ps2kit.mwo3 E:/OVERLAY/AREA00.BIN
 
 ## Status
 
-Session 1: disc analysis, index and streamed audio solved, porting route
-chosen. See [docs/00-sessions.md](docs/00-sessions.md) for the log,
+Session 1: disc analysis; index, streamed audio and text solved; first
+textures; porting route chosen. See [docs/00-sessions.md](docs/00-sessions.md)
+for the log,
 [docs/06-attack-plan.md](docs/06-attack-plan.md) for the route,
 [docs/07-next-session.md](docs/07-next-session.md) for what is next and
 [docs/04-curiosities.md](docs/04-curiosities.md) for the interesting bits.

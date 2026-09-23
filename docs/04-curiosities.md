@@ -43,11 +43,20 @@ frequency of a 625-line CRT (15 625 Hz), most likely a monitor in the
 recording booth. Handy, too — it sits at the right frequency only when the
 clips are played at 48 kHz, which confirmed the rate.
 
-### 6. "BR" is British
+### 6. Three lines of Japanese in the Spanish version
+
+The Spanish text of section 23 keeps three lines that were never translated,
+still in Shift-JIS: 火が消えた ("the fire's out"), 今のうちに通り抜けられるかも
+しれない ("maybe I can get through while I have the chance") and くっ　これでは
+戻れないぞ ("damn, I can't go back this way"). The other languages have them
+translated. The Italian text has its own small slip: "ESonia?" for
+"E Sonia?", twice.
+
+### 7. "BR" is British
 
 The English files use the suffix `BR` (British), not `EN` or `UK`.
 
-### 7. Save names
+### 8. Save names
 
 The executable names the memory card directory
 `BESCES-50240-DS00-00` with files `EX_DATA.00`–`EX_DATA.04`. `DS` is

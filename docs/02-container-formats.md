@@ -45,12 +45,24 @@ GIFtag  A+D, 4 regs             BITBLTBUF TRXPOS TRXREG TRXDIR
 GIFtag  IMAGE, qwc              raw pixels
 ```
 
-The title logo in section 2 is a single 256×384 transfer declared as
-PSMCT32. Decoded naively as 32-bit it shows the EXTERMINATION logo, but
-scrambled: the data is 8- or 4-bit texel data uploaded *through* a 32-bit
-transfer, a common PS2 trick. Reading it back needs a model of GS local
-memory with the per-format swizzles (PSMCT32 → PSMT8/PSMT4 reinterpretation).
-That component is generic and goes into `ps2kit` (see the plan).
+**Census** (IT, all records): 65 packets, 115 image transfers, and every
+one is PSMCT32, 256 pixels wide (DBW 4), mostly 256×480. The game never
+uploads in the texture's own format: it ships whole 256-wide "texture pages"
+as 32-bit data, and the renderer reads them back as indexed textures.
+
+**Verified for PSMT8** on the title page (section 2, 256×384 at block
+0x2A00): read back as PSMT8 it becomes a clean 512×768 index image — the
+EXTERMINATION logo, the X-ray hand in its rings, `© 2001 Deep Space Inc. /
+Sony Computer Entertainment Inc.`, menu glyphs — with the CLUTs stored in the
+same page: 16×16 PSMCT32 rectangles at y = 352, x = 0, 16, 32, 48 (four
+colour variants of the logo) and 64, in CSM1 order, alpha 0–128. For a
+page-aligned upload the 32-bit and 8-bit layouts share pages and blocks, so a
+closed-form remap suffices (`ps2kit.gs.unswizzle8`).
+
+**Room pages are not PSMT8**: the same remap on `s04_r0` shows the texture
+grid but scrambled contents, the look of PSMT4. PSMT4 needs a proper model of
+GS local memory (block and column tables per format), the next `ps2kit`
+component.
 
 ## Sound banks
 
@@ -61,10 +73,26 @@ Driven by the custom IOP driver `sndn2_driver`. Not decoded yet.
 
 ## Text
 
-**Observed**. Slot `0x3F` of each area, and slots `0x40`/`0x41` of section 57.
-Plain **Latin-1** (`à` = 0xE0, `ù` = 0xF9), strings NUL-terminated, `\n` for
-line breaks, preceded by a header and a table of 16-byte records
-(`{u32 offset?, u32 index, …}`). Example from area 00, Italian:
+**Verified** as far as the strings go: 19 text resources in every
+language (17 areas + two system tables in section 57), about 1 470 non-empty
+strings each (725 in English). Tool: `tools/ext_text.py`.
+
+Slot `0x3F` of each area, slots `0x40`/`0x41` of section 57. Inside, before
+the strings, sit tables not decoded yet: a header, a table of 16-byte
+per-line records, and short command records `{3, 1, 0, -1}` / `{3, 0, n, -1}`
+(n = 11, 32, 65… in area 00 — possibly voice clip numbers). Then the string
+table, found by its shape:
+
+    u32 ?  u32 count  u32 pool_size  u32 1
+    count × { u32 offset, u32 offset, u32 length, u32 length + 1 }
+    pool: NUL-terminated strings, `\n` for line breaks
+
+Encoding is **Windows-1252** (French `œ` is 0x9C), with **Shift-JIS pairs
+led by 0x81** for a few symbols — `…` 0x8163, `／` 0x815E, `＜ ＞`
+0x8183/0x8184, full-width space and `！` — so the font engine is Japanese.
+Bytes 0x80, 0x8D, 0x8E, 0x8F and 0x90 are the game's own glyphs (pad
+buttons, card-key symbols). Empty strings separate groups of lines, and the
+English file leaves all dialogue empty. Example from area 00, Italian:
 
     Dennis. / Qui, Roger. / Credo ci sia qualcuno\nvivo quaggiù.
 

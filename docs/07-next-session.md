@@ -1,22 +1,20 @@
 # TODO — session 2
 
-Phase 1 of the plan: first pictures. The title logo is the test case,
-because it is one self-contained transfer and we already know what it should
-look like.
+Phase 1 of the plan: room textures. The title page already reads back as
+PSMT8; the room pages need PSMT4, and that needs a real GS memory model.
 
-1. **GS local-memory model** (`ps2kit/gsmem.py`): page/block/column layout
-   and swizzles for PSMCT32, PSMCT16, PSMT8, PSMT4, and the CLUT layout
-   (CSM1). Write path: apply a BITBLTBUF/TRXPOS/TRXREG transfer. Read path:
-   read a rectangle back in any PSM. Validate by round-tripping, then on the
-   section 2 logo.
-2. **GS packet walker** (`ps2kit/gspacket.py`): DMA tag → VIF codes → GIF
-   tags → register writes and image data. Enough to replay every GS pack of
-   the disc into a GS memory image.
-3. **Dump GS memory images** of the title section and of one room, and look
-   at them as PSMT8/PSMT4 with guessed CLUTs. Then hunt the TEX0 values in
-   the room's resources to pair textures with palettes.
-4. **Text**: solve the slot `0x3F` table, write `tools/ext_text.py`, dump all
-   five languages.
+Done in session 1 already: the packet walker (`ps2kit.gs.walk`), PSMT8 +
+CLUT on the title page, the text dump.
+
+1. **GS local-memory model** (`ps2kit/gsmem.py`): page/block/column tables
+   for PSMCT32, PSMCT16, PSMT8 and PSMT4. Write path: apply a transfer at
+   its DBP/DBW. Read path: read any rectangle back in any PSM. Validate by
+   reproducing `unswizzle8` on the title page, then read `s04_r0` as PSMT4.
+2. **Replay a whole room** into one GS memory image (the GS pack and every
+   GS resource) and browse it as PSMT4/PSMT8.
+3. **Hunt TEX0**: search the room's resources for 64-bit values whose TBP0
+   matches the upload blocks (0x2A00, 0x3180…) to pair textures and CLUTs.
+4. **Text tables**: test the voice-clip hypothesis for `{3, 0, n, -1}`.
 5. **Ghidra**: install ghidra-emotionengine-reloaded, import `SCES_502.40`
    and `AREA00.BIN`, and find the area loader from the index-reading code
    (xref the `\DATA\INDEX_xx.IDX` path strings at `0x00274880`).

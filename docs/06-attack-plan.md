@@ -7,7 +7,7 @@ that shapes the route.
 
 * **The data side is friendly.** One index format tiles all game data;
   movies, music and voice are standard SDK formats and already extract. Text
-  is plain Latin-1. Nothing is compressed or encrypted so far.
+  is plain cp1252. Nothing is compressed or encrypted so far.
 * **The logic is code, not script.** Each area has its own CodeWarrior
   overlay of native MIPS (7–28 KB of code each). There is no bytecode
   interpreter to reimplement: gameplay lives in about 2 900 functions in the
@@ -57,11 +57,12 @@ Understanding every format first makes phases 3–4 debuggable: when the port
 draws a wrong model, we will know what it should have drawn.
 
 1. **GS local-memory model** in `ps2kit`: write transfers as the GS would,
-   read back in any PSM (PSMCT32/24/16, PSMT8/4, CLUT CSM1/CSM2). Validate on
-   the title logo.
+   read back in any PSM (PSMCT32/24/16, PSMT8/4, CLUT CSM1/CSM2). PSMT8 is
+   done for page-aligned uploads (the title logo); PSMT4 is next.
 2. **Texture extraction** from every GS pack; locate the TEX0 settings that
    say how each texture is read back (they will be in the model packets).
-3. **Text dump** for all five languages, table format solved.
+3. ~~Text dump for all five languages~~ — done in session 1; the tables
+   before the strings remain.
 4. **Sound banks** decoded to WAV sets.
 5. **Models**: decode the "model" family, export to glTF, check in Blender.
 6. Section map filled in: what sections 0–3, 27–57 hold.

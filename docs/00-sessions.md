@@ -23,14 +23,21 @@ Results:
   movies are per-language with identical audio; the Italian E39S2 differs from
   the English one only by a burned-in subtitle.
 * **Localisation understood**: one voice track for all (English), text in
-  plain Latin-1 per language, a genuine Italian translation.
+  cp1252 per language, a genuine Italian translation.
 * **Overlays**: the MWo3 format is fully described; each area's gameplay is
   native code, not script.
 * **Route chosen**: static recompilation plus SDK-level replacement
   (`06-attack-plan.md`).
 * **ps2kit started** (`10-ps2kit.md`): `elf`, `adpcm`, `pss`, `mwo3`,
-  `fingerprint` — the first pieces of the game-agnostic toolkit.
-* Seven curiosities (`04-curiosities.md`), among them an unreferenced
+  `fingerprint`, `gs` — the first pieces of the game-agnostic toolkit.
+* **First pictures**: every GS upload on the disc is a 256-wide PSMCT32
+  page (115 transfers). Read back as PSMT8 the title page gives the logo and
+  copyright line, with four CLUTs beside it (`ps2kit.gs`). Room pages look
+  like PSMT4: next session.
+* **Text solved** for all five languages (`tools/ext_text.py`): cp1252
+  with Shift-JIS symbol pairs, the font's own glyph bytes, English dialogue
+  left empty.
+* Eight curiosities (`04-curiosities.md`), among them an unreferenced
   pre-release teaser from May 2000 and four cut areas.
 
 Two corrections on the way. The music was first decoded as mono: right
