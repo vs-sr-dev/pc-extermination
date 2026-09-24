@@ -1,20 +1,39 @@
 # TODO — session 7
 
-Session 6 took the recompiled game from its first stall to the title screen
-at full speed (50 fields a second), fixed four display bugs, a stack
-collision and a recompiler bug on the way, and recompiled all 19 overlays.
+Between sessions 6 and 7 the Evergrace probe ran on the same runtime and
+fixed seven more runtime bugs (listed in `runtime/README.md`); Extermination
+still reaches its title with them. Session 6 took the recompiled game from
+its first stall to the title screen at full speed (50 fields a second),
+fixed four display bugs, a stack collision and a recompiler bug on the way,
+and recompiled all 19 overlays.
 "Nouvelle partie" stops in the opening movie. Build and run as in
 [runtime/README.md](../runtime/README.md); drive the game with
 `PS2X_PAD_SCRIPT` (at full speed the title is up by tick ~4300; Cross at
 4600 starts a new game).
 
-1. **Movies**: why the player waits after 33 stream reads. The movie code is
-   around `0x00203D70`–`0x00207A00`: `0x00108DB0` is
-   `sceMpegAddStrCallback` (callbacks `0x002047A0` and `0x002048D0`, data
-   `0x00292280`), `0x00206A80` the player's vsync handler. Follow what the
-   main thread waits on and what the runtime's MPEG HLE (FFmpeg now built
-   in) gives back; the pre-title play of the same movie does end. If that
-   takes long, a skip (end of stream reported at once) unblocks the rest.
+1. **Movies**, with Evergrace as the second case. The Evergrace probe
+   (`pc-evergrace` session 2) took its movie much further and showed where
+   the runtime's libmpeg stands:
+   * FFmpeg decodes the pictures and the player uploads them to GS memory
+     (the Crave logo is intact at page 140);
+   * the player waits on its **own** machinery around libmpeg, which the
+     HLE did not drive: two threads at priority 0 (rejected until now), the
+     `sceMpegCbBackground` callback that feeds the movie's PCM to the IOP
+     (now called from `sceMpegGetPicture`), and `sceMpegCbNodata`, which
+     reads `D4_MADR` to see how far the IPU has consumed the game's
+     bitstream ring and chains more DMA to channel 4. Without an IPU model
+     that ring never drains and the player cannot finish; the final sprite
+     pass from the uploaded picture into the field buffers also draws
+     nothing yet.
+   Extermination streams with `sceCdSt*` (not `sceRead`); its tree is built
+   without the runtime's MPEG traces, so whether its pictures decode is not
+   known yet. Plan: configure with `-DPS2X_ENABLE_AGRESSIVE_LOGS=ON`, check
+   which callbacks Extermination registers (`sceMpegAddCallback` types,
+   `0x00108DB0` for the stream ones) and whether it too drives the IPU
+   itself. The generic fix is probably a small IPU-side model: let the
+   FFmpeg decoder "consume" the game's ring (advance `D4_MADR`/`QWC`,
+   complete channel 4) instead of reading PSS behind the game's back.
+   A skip remains the fallback (Evergrace has one: `PS2X_SKIP_MOVIES`).
 2. **Overlays in action**: past the movie, AREA00 loads. Watch for
    `[overlay] 1 resident`, then follow the first failures inside overlay
    code. The overlay units call the executable through the dispatcher; a

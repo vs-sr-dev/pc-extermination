@@ -1,4 +1,4 @@
-diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/CMakeLists.txt PS2Recomp-ext/ps2xRuntime/CMakeLists.txt
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/CMakeLists.txt PS2Recomp-ext/ps2xRuntime/CMakeLists.txt
 --- ps2xRuntime/CMakeLists.txt
 +++ ps2xRuntime/CMakeLists.txt
 @@ -253,7 +253,7 @@
@@ -10,7 +10,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
      include(ExternalProject)
  
      set(FFMPEG_PREBUILT_TAG "n7.1-241205")
-diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/cmake/ReleaseMode.cmake PS2Recomp-ext/ps2xRuntime/cmake/ReleaseMode.cmake
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/cmake/ReleaseMode.cmake PS2Recomp-ext/ps2xRuntime/cmake/ReleaseMode.cmake
 --- ps2xRuntime/cmake/ReleaseMode.cmake
 +++ ps2xRuntime/cmake/ReleaseMode.cmake
 @@ -1,5 +1,7 @@
@@ -30,7 +30,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
          set_property(TARGET ${TargetName} PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
      else()
          message(WARNING "Interprocedural optimization not supported: ${ipo_error}")
-diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/include/ps2_runtime.h PS2Recomp-ext/ps2xRuntime/include/ps2_runtime.h
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/include/ps2_runtime.h PS2Recomp-ext/ps2xRuntime/include/ps2_runtime.h
 --- ps2xRuntime/include/ps2_runtime.h
 +++ ps2xRuntime/include/ps2_runtime.h
 @@ -551,4 +551,12 @@
@@ -46,7 +46,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
 +                                     PS2Runtime::RecompiledFunction *table);
 +
  #endif // PS2_RUNTIME_H
-diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
 --- ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
 +++ ps2xRuntime/src/lib/Kernel/EeScheduler.cpp
 @@ -1,3 +1,4 @@
@@ -129,7 +129,27 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
      if (m_eeCycle < m_sliceEndCycle)
      {
          return false;
-@@ -1784,7 +1817,11 @@
+@@ -423,7 +456,9 @@
+ int EeScheduler::createThread(const EeThreadCreateParams &params)
+ {
+     assertExecutor();
+-    if (params.priority < 1 || params.priority >= kPriorityCount)
++    // 0 is the highest EE priority and a valid one: the main thread starts
++    // there, and Evergrace's movie player runs its decoder thread at 0 too.
++    if (params.priority < 0 || params.priority >= kPriorityCount)
+     {
+         return KE_ILLEGAL_PRIORITY;
+     }
+@@ -701,7 +736,7 @@
+ int EeScheduler::changePriority(int id, int priority, bool interruptSafe, int &oldPriority)
+ {
+     assertExecutor();
+-    if (priority < 1 || priority >= kPriorityCount)
++    if (priority < 0 || priority >= kPriorityCount)
+     {
+         return KE_ILLEGAL_PRIORITY;
+     }
+@@ -1784,7 +1819,11 @@
              const auto now = std::chrono::steady_clock::now();
              for (const ScheduledEvent &item : m_deadlines)
              {
@@ -142,7 +162,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
                      (pacingDeadline == std::chrono::steady_clock::time_point{} ||
                       item.hostDeadline < pacingDeadline))
                  {
-@@ -1813,8 +1850,14 @@
+@@ -1813,8 +1852,14 @@
              const auto pacedNow = std::chrono::steady_clock::now();
              auto firstFuture = std::partition(m_deadlines.begin(), m_deadlines.end(),
                                                [this, pacedNow](const ScheduledEvent &item)
@@ -159,7 +179,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
              due.insert(due.end(),
                         std::make_move_iterator(m_deadlines.begin()),
                         std::make_move_iterator(firstFuture));
-@@ -1850,8 +1893,8 @@
+@@ -1850,8 +1895,8 @@
                  scheduleEvent(scheduled.deadlineCycle + kVBlankDurationCycles,
                                scheduled.hostDeadline + kVBlankDuration,
                                EeEvent{EeEventType::VBlankEnd, 0, m_vsyncTick + 1u});
@@ -170,7 +190,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
                                EeEvent{EeEventType::VBlankStart, 0, 0});
              }
              processEvent(scheduled.event);
-@@ -1867,6 +1910,11 @@
+@@ -1867,6 +1912,11 @@
          requestStop();
          break;
      case EeEventType::VBlankStart:
@@ -182,7 +202,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
          ++m_vsyncTick;
          m_runtime.memory().gs().vsyncTick.store(m_vsyncTick, std::memory_order_release);
          if ((m_vsyncTick & 1u) != 0u)
-@@ -2058,6 +2106,8 @@
+@@ -2058,6 +2108,8 @@
                                  std::chrono::steady_clock::time_point hostDeadline,
                                  EeEvent event)
  {
@@ -191,7 +211,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
      {
          std::lock_guard lock(m_eventMutex);
          m_deadlines.push_back(ScheduledEvent{deadlineCycle, hostDeadline, event, ++m_eventSequence});
-diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
 --- ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
 +++ ps2xRuntime/src/lib/Kernel/Stubs/GS.cpp
 @@ -5,6 +5,8 @@
@@ -203,7 +223,26 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
  namespace ps2_stubs
  {
      namespace
-@@ -802,6 +804,8 @@
+@@ -631,7 +633,8 @@
+             return;
+         }
+ 
+-        uint32_t dbp = (static_cast<uint32_t>(img.vram_addr) * 2048u) / 256u;
++        // sceGsSetDefLoadImage takes dbp in GS blocks (256 bytes), as BITBLTBUF does.
++        uint32_t dbp = static_cast<uint32_t>(img.vram_addr);
+         uint32_t dsax = static_cast<uint32_t>(img.x);
+         uint32_t dsay = static_cast<uint32_t>(img.y);
+ 
+@@ -696,7 +699,7 @@
+             return;
+         }
+ 
+-        uint32_t sbp = (static_cast<uint32_t>(img.vram_addr) * 2048u) / 256u;
++        uint32_t sbp = static_cast<uint32_t>(img.vram_addr); // GS blocks, as for loads
+         uint64_t bitbltbuf = (static_cast<uint64_t>(sbp & 0x3FFFu) << 0) |
+                              (static_cast<uint64_t>(fbw & 0x3Fu) << 16) |
+                              (static_cast<uint64_t>(img.psm & 0x3Fu) << 24) |
+@@ -802,6 +805,8 @@
              g_gparam.omode = static_cast<uint8_t>(omode & 0xFF);
              g_gparam.ffmode = static_cast<uint8_t>(ffmode & 0x1);
              writeGsGParamToScratch(runtime);
@@ -212,7 +251,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
              uint64_t pmode = makePmode(1, 0, 0, 0, 0, 0x80);
              uint64_t smode2 = (interlace & 0x1) | ((ffmode & 0x1) << 1);
              uint64_t dispfb = makeDispFb(0, 10, 0, 0, 0);
-@@ -866,6 +870,8 @@
+@@ -866,6 +871,8 @@
          setReturnS32(ctx, 0);
      }
  
@@ -221,7 +260,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
      void sceGsSetDefDBuffDc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
      {
          const uint32_t envAddr = getRegU32(ctx, 4);
-@@ -896,14 +902,10 @@
+@@ -896,14 +903,10 @@
          const int32_t drawWidth = static_cast<int32_t>(w);
          const int32_t drawHeight = static_cast<int32_t>(h);
  
@@ -239,7 +278,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
          const uint64_t dispfb0 = makeDispFb(fbp1, fbw, psm, 0u, 0u);
          const uint64_t dispfb1 = makeDispFb(0u, fbw, psm, 0u, 0u);
  
-@@ -968,12 +970,7 @@
+@@ -968,12 +971,7 @@
          const int32_t drawWidth = static_cast<int32_t>(w);
          const int32_t drawHeight = static_cast<int32_t>(h);
  
@@ -253,7 +292,28 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
  
          GsDBuffMem db{};
          db.disp[0].pmode = pmode;
-@@ -1036,8 +1033,7 @@
+@@ -1016,6 +1014,20 @@
+         uint64_t display = makeDisplay(dx, dy, 0, 0, w - 1, h - 1);
+ 
+         writeGsDispEnv(rdram, envAddr, display, dispfb);
++        // libgraph fills PMODE and SMODE2 as well (its code on the Evergrace
++        // disc): read circuit 2 at full alpha, and the interlace and field
++        // mode of sceGsResetGraph. Left at zero, a later sceGsPutDispEnv of a
++        // hand-built environment turns both circuits off.
++        if (uint8_t *ptr = getMemPtr(rdram, envAddr))
++        {
++            GsDispEnvMem env{};
++            std::memcpy(&env, ptr, sizeof(env));
++            env.pmode = 0x66u;
++            env.smode2 = (static_cast<uint64_t>(g_gparam.interlace & 0x1u) << 0) |
++                         (static_cast<uint64_t>(g_gparam.ffmode & 0x1u) << 1);
++            env.bgcolor = 0u;
++            std::memcpy(ptr, &env, sizeof(env));
++        }
+         setReturnS32(ctx, 0);
+     }
+ 
+@@ -1036,8 +1048,7 @@
  
          uint32_t psm = param_2 & 0xFU;
          uint32_t fbw = ((static_cast<uint32_t>(w) + 63u) >> 6) & 0x3FU;
@@ -263,7 +323,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
  
          GsDrawEnv1Mem env{};
          seedGsDrawEnv1(env,
-@@ -1079,8 +1075,7 @@
+@@ -1079,8 +1090,7 @@
  
          uint32_t psm = param_2 & 0xFU;
          uint32_t fbw = ((static_cast<uint32_t>(w) + 63u) >> 6) & 0x3FU;
@@ -273,7 +333,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
  
          GsDrawEnv2Mem env{};
          seedGsDrawEnv2(env,
-@@ -1316,19 +1311,18 @@
+@@ -1316,19 +1326,18 @@
          setReturnU32(ctx, oldCallback);
      }
  
@@ -299,7 +359,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
          {
              int32_t v = (h + 63) >> 6;
              if (h + 63 < 0)
-@@ -1358,8 +1352,14 @@
+@@ -1358,8 +1367,14 @@
              product = (product * 0x10000) >> 16;
          else
              product = (product * 0x20000) >> 16;
@@ -315,7 +375,44 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
      }
  
      void Ps2SwapDBuff(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
-diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp
+--- ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp
++++ ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp
+@@ -2284,6 +2284,33 @@
+     {
+         const uint32_t mpegAddr = getRegU32(ctx, 4);
+         const uint32_t imageAddr = getRegU32(ctx, 5);
++
++        // libmpeg calls the sceMpegCbBackground (4) callbacks while the IPU
++        // decodes a picture. Players use them for work that must keep pace
++        // with decoding: Evergrace feeds the movie's PCM to the IOP there, and
++        // does not start showing pictures until that audio has been primed.
++        {
++            constexpr uint32_t kMpegCbBackground = 4u;
++            std::vector<MpegStreamCallbackEvent> backgroundEvents;
++            {
++                std::lock_guard<std::mutex> lock(g_mpeg_stub_mutex);
++                auto it = g_mpeg_stub_state.callbacksByMpeg.find(mpegAddr);
++                if (it != g_mpeg_stub_state.callbacksByMpeg.end())
++                {
++                    MpegStreamCallbackEvent event{};
++                    event.mpegAddr = mpegAddr;
++                    event.streamType = kMpegCbBackground; // sceMpegCbData.type
++                    for (const MpegRegisteredCallback &callback : it->second)
++                    {
++                        if (!callback.stream && callback.type == kMpegCbBackground)
++                            event.callbacks.push_back(callback);
++                    }
++                    if (!event.callbacks.empty())
++                        backgroundEvents.push_back(std::move(event));
++                }
++            }
++            dispatchStreamCallbacksUnlocked(rdram, ctx, runtime, backgroundEvents);
++        }
+         uint32_t width = kStubMovieWidth;
+         uint32_t height = kStubMovieHeight;
+         uint32_t frameCount = 0u;
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp
 --- ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp
 +++ ps2xRuntime/src/lib/Kernel/Stubs/Pad.cpp
 @@ -1,5 +1,7 @@
@@ -402,7 +499,59 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
          PS2_IF_AGRESSIVE_LOGS({
              if (g_padReadLogCount < 48)
              {
-diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/Kernel/Syscalls/System.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/Syscalls/System.cpp
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/src/lib/Kernel/Syscalls/FileIO.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/Syscalls/FileIO.cpp
+--- ps2xRuntime/src/lib/Kernel/Syscalls/FileIO.cpp
++++ ps2xRuntime/src/lib/Kernel/Syscalls/FileIO.cpp
+@@ -18,6 +18,13 @@
+     static std::mutex g_vagAccumMutex;
+     static constexpr size_t kVagAccumMaxBytes = 16 * 1024 * 1024;
+ 
++    // PS2X_TRACE_IO=1: one line per open, seek and read.
++    static bool traceIo()
++    {
++        static const bool on = std::getenv("PS2X_TRACE_IO") != nullptr;
++        return on;
++    }
++
+     void fioOpen(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+         uint32_t pathAddr = getRegU32(ctx, 4); // $a0
+@@ -38,6 +45,9 @@
+         }
+ 
+         const int32_t descriptor = runtime->vfs().open(ps2Path, static_cast<uint32_t>(flags), currentVfsMounts(), runtime->romDevice());
++        if (traceIo())
++            std::cout << "[io] open \"" << ps2Path << "\" flags=0x" << std::hex << flags << std::dec
++                      << " -> " << descriptor << std::endl;
+         setReturnS32(ctx, descriptor);
+     }
+ 
+@@ -121,6 +131,14 @@
+             return;
+         }
+         const size_t bytesRead = static_cast<size_t>(readResult);
++        if (traceIo())
++        {
++            uint32_t head = 0;
++            if (bytesRead >= 4)
++                std::memcpy(&head, hostBuf, 4);
++            std::cout << "[io] read fd=" << ps2Fd << " buf=0x" << std::hex << bufAddr << std::dec << " size=" << size
++                      << " -> " << bytesRead << " head=0x" << std::hex << head << std::dec << std::endl;
++        }
+         if (bytesRead > 0)
+         {
+             ps2TraceGuestRangeWrite(rdram, bufAddr, static_cast<uint32_t>(bytesRead), "fioRead", ctx);
+@@ -226,6 +244,9 @@
+         }
+ 
+         const int64_t newPos = runtime->vfs().seek(ps2Fd, offset, hostWhence);
++        if (traceIo())
++            std::cout << "[io] seek fd=" << ps2Fd << " offset=" << offset << " whence=" << whence << " -> " << newPos
++                      << std::endl;
+         if (newPos < 0)
+         {
+             setReturnS32(ctx, -1);
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/src/lib/Kernel/Syscalls/System.cpp PS2Recomp-ext/ps2xRuntime/src/lib/Kernel/Syscalls/System.cpp
 --- ps2xRuntime/src/lib/Kernel/Syscalls/System.cpp
 +++ ps2xRuntime/src/lib/Kernel/Syscalls/System.cpp
 @@ -1,6 +1,8 @@
@@ -440,19 +589,58 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
      void SetupThread(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
      {
          const uint32_t gp = getRegU32(ctx, 4);
-@@ -531,6 +545,11 @@
+@@ -489,24 +503,13 @@
+         const uint32_t stackSize = stackSizeSigned > 0
+                                        ? static_cast<uint32_t>(stackSizeSigned)
+                                        : 0u;
++        // stack == -1 (the SDK's GNU crt0): the kernel places the stack at the
++        // end of RAM, [RAM - size, RAM), and the thread starts at its top.
++        uint32_t stackBase = stack;
+         if (stack == 0xFFFFFFFFu)
+         {
+-            if (stackSizeSigned > 0)
+-            {
+-                const uint32_t requestedSize = static_cast<uint32_t>(stackSizeSigned);
+-                if (requestedSize < PS2_RAM_SIZE)
+-                {
+-                    sp = PS2_RAM_SIZE - requestedSize;
+-                }
+-                else
+-                {
+-                    sp = PS2_RAM_SIZE;
+-                }
+-            }
+-            else
+-            {
+-                sp = PS2_RAM_SIZE;
+-            }
++            stackBase = (stackSize != 0u && stackSize < PS2_RAM_SIZE) ? PS2_RAM_SIZE - stackSize : 0u;
++            sp = PS2_RAM_SIZE;
+         }
+         else if (stack != 0u)
+         {
+@@ -523,7 +526,7 @@
+         sp &= ~0xFu;
+         if (stack == 0xFFFFFFFFu)
+         {
+-            initialStack = sp;
++            initialStack = stackBase;
+         }
+         else if (stack != 0u)
+         {
+@@ -531,6 +534,11 @@
          }
  
          scheduler.setupCurrentThread(initialStack, stackSize, getRegU32(ctx, 28));
-+        if (stack != 0xFFFFFFFFu && stack != 0u && stackSize != 0u)
++        if (stackBase != 0xFFFFFFFFu && stackBase != 0u && stackSize != 0u)
 +        {
-+            g_ps2xMainStackBase.store(stack, std::memory_order_relaxed);
++            g_ps2xMainStackBase.store(stackBase, std::memory_order_relaxed);
 +            g_ps2xMainStackSize.store(stackSize, std::memory_order_relaxed);
 +        }
          setReturnU32(ctx, sp);
      }
  
-diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp PS2Recomp-ext/ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp PS2Recomp-ext/ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp
 --- ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp
 +++ ps2xRuntime/src/lib/gs/gs_cpu_backend.cpp
 @@ -1,3 +1,4 @@
@@ -497,7 +685,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
  
          float spriteW = static_cast<float>(spanX);
          float spriteH = static_cast<float>(spanY);
-diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/gs/gs_frontend.cpp PS2Recomp-ext/ps2xRuntime/src/lib/gs/gs_frontend.cpp
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/src/lib/gs/gs_frontend.cpp PS2Recomp-ext/ps2xRuntime/src/lib/gs/gs_frontend.cpp
 --- ps2xRuntime/src/lib/gs/gs_frontend.cpp
 +++ ps2xRuntime/src/lib/gs/gs_frontend.cpp
 @@ -3,9 +3,11 @@
@@ -523,7 +711,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
  void GS::latchHostPresentationFrame()
  {
      GSPresentationRequest request{};
-@@ -551,6 +557,48 @@
+@@ -551,6 +557,66 @@
          }
      }
  
@@ -548,9 +736,27 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
 +    }
 +    // PS2X_DUMP_VRAM=<first tick>: raw local memory and the display
 +    // registers of eight consecutive latches, for offline inspection.
++    // PS2X_DUMP_VRAM=<t1>,<t2>,...: one latch at (or just after) each tick.
 +    static const char *s_dumpVram = std::getenv("PS2X_DUMP_VRAM");
++    static std::vector<unsigned long long> s_dumpTicks = []
++    {
++        std::vector<unsigned long long> ticks;
++        for (const char *p = s_dumpVram; p && *p;)
++        {
++            char *end = nullptr;
++            ticks.push_back(std::strtoull(p, &end, 0));
++            if (end == p)
++                break;
++            p = (*end == ',') ? end + 1 : end;
++        }
++        return ticks;
++    }();
 +    static uint32_t s_dumpCount = 0u;
-+    if (s_dumpVram && s_dumpCount < 8u && request.vsyncTick >= std::strtoull(s_dumpVram, nullptr, 0))
++    const bool dumpList = s_dumpTicks.size() > 1u;
++    const bool dumpNow = dumpList
++                             ? (s_dumpCount < s_dumpTicks.size() && request.vsyncTick >= s_dumpTicks[s_dumpCount])
++                             : (!s_dumpTicks.empty() && s_dumpCount < 8u && request.vsyncTick >= s_dumpTicks[0]);
++    if (dumpNow)
 +    {
 +        std::vector<uint8_t> vram;
 +        if (m_backend)
@@ -572,7 +778,66 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
      const bool hasFrame = static_cast<bool>(frame);
      const uint32_t displayFbp = frame.displayFbp;
      const uint32_t sourceFbp = frame.sourceFbp;
-diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h PS2Recomp/ps2xRuntime/src/lib/ps2_runtime.cpp PS2Recomp-ext/ps2xRuntime/src/lib/ps2_runtime.cpp
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/src/lib/ps2_memory.cpp PS2Recomp-ext/ps2xRuntime/src/lib/ps2_memory.cpp
+--- ps2xRuntime/src/lib/ps2_memory.cpp
++++ ps2xRuntime/src/lib/ps2_memory.cpp
+@@ -12,6 +12,15 @@
+ 
+ namespace
+ {
++    // DMAC addresses (MADR, TADR, a tag's ADDR) select the scratchpad with
++    // bit 31 and keep only the offset in the low 14 bits: 0x80001000 is
++    // scratchpad offset 0x1000. Map such an address to the EE's 0x70000000
++    // view so the usual scratchpad checks apply.
++    inline uint32_t dmaSourceAddress(uint32_t address)
++    {
++        return (address & 0x80000000u) ? (0x70000000u | (address & 0x3FFFu)) : address;
++    }
++
+     inline void inRange(uint32_t offset, size_t bytes, size_t regionSize, const char *op, uint32_t address)
+     {
+         if (static_cast<uint64_t>(offset) + static_cast<uint64_t>(bytes) > static_cast<uint64_t>(regionSize))
+@@ -1302,7 +1311,7 @@
+             }
+ 
+             const uint32_t channelBase = address & 0xFFFFFF00;
+-            const uint32_t madr = m_ioRegisters[channelBase + 0x10];
++            const uint32_t madr = dmaSourceAddress(m_ioRegisters[channelBase + 0x10]);
+             const uint32_t qwc = m_ioRegisters[channelBase + 0x20];
+             m_dmaStartCount.fetch_add(1, std::memory_order_relaxed);
+ 
+@@ -1339,7 +1348,7 @@
+                 }
+                 else if (mode == 1)
+                 {
+-                    uint32_t tagAddr = m_ioRegisters[channelBase + 0x30];
++                    uint32_t tagAddr = dmaSourceAddress(m_ioRegisters[channelBase + 0x30]);
+                     uint32_t asr0 = m_ioRegisters[channelBase + 0x40];
+                     uint32_t asr1 = m_ioRegisters[channelBase + 0x50];
+                     uint32_t asp = (chcr >> 4) & 0x3u;
+@@ -1405,6 +1414,12 @@
+                     int tagsProcessed = 0;
+                     uint32_t lastTagUpper = (chcr >> 16) & 0xFFFFu;
+ 
++                    // Started with QWC > 0, the channel first sends QWC quadwords
++                    // from MADR and only then reads a tag at TADR. Evergrace sends
++                    // its packets this way, with TADR on an END tag.
++                    if (qwc > 0)
++                        appendData(madr, qwc);
++
+                     while (tagsProcessed < kMaxChainTags)
+                     {
+                         const uint32_t currentTagAddr = tagAddr;
+@@ -1438,7 +1453,7 @@
+                         uint16_t tagQwc = static_cast<uint16_t>(tag & 0xFFFF);
+                         uint32_t id = static_cast<uint32_t>((tag >> 28) & 0x7);
+                         const bool irq = ((tag >> 31) & 0x1ull) != 0ull;
+-                        uint32_t addr = static_cast<uint32_t>((tag >> 32) & 0x7FFFFFFF);
++                        uint32_t addr = dmaSourceAddress(static_cast<uint32_t>(tag >> 32));
+                         lastTagUpper = static_cast<uint32_t>((tag >> 16) & 0xFFFFu);
+                         ++tagsProcessed;
+ 
+diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x ps2_recompiled_stubs.h -x '*.orig' -x '*.rej' PS2Recomp/ps2xRuntime/src/lib/ps2_runtime.cpp PS2Recomp-ext/ps2xRuntime/src/lib/ps2_runtime.cpp
 --- ps2xRuntime/src/lib/ps2_runtime.cpp
 +++ ps2xRuntime/src/lib/ps2_runtime.cpp
 @@ -373,6 +373,8 @@
@@ -714,7 +979,7 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
      uint32_t top = m_asyncCallbackStackTop;
      if (top > PS2_RAM_SIZE)
      {
-@@ -2420,6 +2506,17 @@
+@@ -2420,6 +2506,36 @@
  
              }
          });
@@ -728,11 +993,30 @@ diff -ruN --strip-trailing-cr -x runner -x ovl -x ps2_recompiled_functions.h -x 
 +                      << " ra=0x" << m_debugRa.load(std::memory_order_relaxed)
 +                      << " sp=0x" << m_debugSp.load(std::memory_order_relaxed) << std::dec
 +                      << " threads=" << m_eeScheduler->snapshot().threads.size() << std::endl;
++            // PS2X_WATCH=addr,addr,...: the guest words at those addresses.
++            static const char *s_watch = std::getenv("PS2X_WATCH");
++            if (s_watch)
++            {
++                std::cout << "[watch] tick=" << m_eeScheduler->currentVSyncTick() << std::hex;
++                for (const char *p = s_watch; *p;)
++                {
++                    char *end = nullptr;
++                    const uint32_t addr = static_cast<uint32_t>(std::strtoul(p, &end, 16));
++                    if (end == p)
++                        break;
++                    uint32_t value = 0;
++                    if (addr + 4u <= PS2_RAM_SIZE)
++                        std::memcpy(&value, m_memory.getRDRAM() + addr, 4);
++                    std::cout << " " << addr << "=" << value;
++                    p = (*end == ',') ? end + 1 : end;
++                }
++                std::cout << std::dec << std::endl;
++            }
 +        }
          uint32_t presentWidth = FB_WIDTH;
          uint32_t presentHeight = DEFAULT_DISPLAY_HEIGHT;
          UploadFrame(frameTex, this, presentWidth, presentHeight);
-@@ -2430,9 +2527,11 @@
+@@ -2430,9 +2546,11 @@
          const float srcHeight = static_cast<float>(std::max<uint32_t>(1u, presentHeight));
          const float screenWidth = static_cast<float>(GetScreenWidth());
          const float screenHeight = static_cast<float>(GetScreenHeight());

@@ -266,3 +266,24 @@ Where it stops: "Nouvelle partie" plays the opening movie (E900), and the
 player waits for decoded pictures that never come; the stream stops after
 33 reads, with FFmpeg (now built in) or without it. The first area, and so
 the first overlay, is behind that movie.
+
+## Between sessions 6 and 7 — the Evergrace probe
+
+A one-session test of the toolchain on a second game (Evergrace,
+FromSoftware 2000, `pc-evergrace` session 2): same Ghidra route, same
+PS2Recomp, same runtime patch. It reached Evergrace's title screen, the
+new-game menu and the character choice at 50 fields a second, and paid
+back into this repository:
+
+* seven runtime fixes that any game may need (`runtime/README.md`, the
+  Kernel, DMA, GS and MPEG rows): Extermination still reaches its title
+  with all of them;
+* `tools/ghidra/SplitFarChunks.java`: small tail-jumped functions that
+  Ghidra folds into their caller made PS2Recomp emit one 37 MB function;
+* `tools/recomp/sync_generated.py` (copy only changed generated files, so
+  ninja does not rebuild 20 000 of them) and `tools/recomp/vram_shot.py`
+  (GS memory dumps to screenshots and a contact sheet);
+* runtime switches `PS2X_TRACE_IO`, `PS2X_WATCH` and a list form of
+  `PS2X_DUMP_VRAM`;
+* a much clearer picture of the movie problem, carried into the session 7
+  plan.
