@@ -3,10 +3,13 @@
   "game": "Extermination",
   "system": "PS2",
   "type": "recomp",
-  "toolchain": "PS2Recomp",
+  "toolchain": [
+    "PS2Recomp",
+    "ps2kit"
+  ],
   "status": "in-progress",
   "targets": [
     "Windows"
   ],
-  "approach": "PS2Recomp with our runtime changes; ps2kit, a game-agnostic PS2 toolkit, grows in this repository"
+  "approach": "PS2Recomp with our runtime changes; ps2kit grows in this repository"
 }
